@@ -279,6 +279,18 @@
     box-shadow: inset 0 0 0 2px #c99114;
     flex: none;
   }
+  .card .trade { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+  .tag {
+    font-size: 10px;
+    line-height: 1.5;
+    padding: 0 5px;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+  .tag.up { background: rgba(90, 212, 111, .18); color: #a6e9b4; }
+  .tag.down { background: rgba(224, 69, 47, .16); color: #f0a99c; }
+  .tag.even { background: rgba(255, 255, 255, .08); color: rgba(255, 255, 255, .6); }
+
   .card .price { font-size: 11px; color: var(--accent); }
   .card .price.short { color: rgba(255, 255, 255, .45); }
 
@@ -476,6 +488,7 @@
       <button class="tab" type="button" role="tab" data-kind="hat" aria-selected="false">Hats</button>
       <button class="tab" type="button" role="tab" data-kind="trail" aria-selected="false">Trails</button>
       <button class="tab" type="button" role="tab" data-kind="world" aria-selected="false">Worlds</button>
+      <button class="tab" type="button" role="tab" data-kind="feather" aria-selected="false">Perks</button>
     </div>
     <ul id="skin-list" class="sheet-list"></ul>
     <button id="sheet-close" class="sheet-btn" type="button">Back</button>
@@ -741,6 +754,8 @@
       haptics: false,
       assist: false,
       coins: 0,
+      xp: 0,
+      feathers: [],
       owned: [],
       granted: false,        // back-pay for play from before the shop existed
       best: 0,
@@ -766,6 +781,8 @@
       haptics: p.haptics === true,
       assist: p.assist === true,
       coins: num(p.coins, 0),
+      xp: num(p.xp, 0),
+      feathers: Array.isArray(p.feathers) ? p.feathers.filter(x => typeof x === 'string') : [],
       owned: Array.isArray(p.owned) ? p.owned.filter(x => typeof x === 'string') : [],
       granted: p.granted === true,
       best: num(p.best, 0),
@@ -784,18 +801,53 @@
   const COIN_PIPE = 1, COIN_POWER = 2;
   const MEDAL_BONUS = { bronze: 5, silver: 15, gold: 30, platinum: 60 };
 
+  /* ── XP and levels ────────────────────────────────────────────────
+     XP is deliberately not a second coin counter. Coins reward volume —
+     a coin a pipe, so a long grind pays. XP rewards depth and
+     improvement: how far you got, and whether you beat yourself. */
+  function runXp(score, medal, beatBest) {
+    const base = score + (medal ? MEDAL_BONUS[medal] : 0);
+    return Math.max(0, Math.round(base * (beatBest ? 2 : 1)));
+  }
+
+  // Cumulative XP to reach level n. Stretches as it climbs, so early
+  // levels arrive quickly and later ones mean something.
+  function xpForLevel(n) {
+    if (n <= 1) return 0;
+    return Math.round(40 * Math.pow(n - 1, 1.55));
+  }
+
+  function levelFor(xp) {
+    let n = 1;
+    while (n < 200 && xp >= xpForLevel(n + 1)) n++;
+    return n;
+  }
+
+  // How far through the current level, 0..1 — for the bar on screen.
+  function levelProgress(xp) {
+    const n = levelFor(xp);
+    const from = xpForLevel(n), to = xpForLevel(n + 1);
+    return to === from ? 1 : clamp((xp - from) / (to - from), 0, 1);
+  }
+
   function earn(n) {
     if (!profile || n <= 0) return;
-    profile.coins += n;
-    G.runCoins += n;
+    const paid = Math.max(1, Math.round(n * G.coinMul));
+    profile.coins += paid;
+    G.runCoins += paid;
   }
 
   // Play that happened before the shop existed still counts.
   function backPay(p) {
     if (p.granted) return 0;
     let n = p.stats.pipes * COIN_PIPE + p.stats.powers * COIN_POWER;
-    for (const tier of Object.keys(MEDAL_BONUS)) n += p.stats[tier] * MEDAL_BONUS[tier];
+    let xp = p.best;
+    for (const tier of Object.keys(MEDAL_BONUS)) {
+      n += p.stats[tier] * MEDAL_BONUS[tier];
+      xp += p.stats[tier] * MEDAL_BONUS[tier];
+    }
     p.coins += n;
+    p.xp += xp;
     p.granted = true;
     return n;
   }
@@ -861,34 +913,46 @@
   }
 
   /* ── skins: pure palette swaps of one pixel grid ────────────────── */
+  /* ── traits ───────────────────────────────────────────────────────
+     A bird may change the bird. It may never change the world. Gravity,
+     flap, terminal velocity, hitbox, power-up duration, shield and the
+     coin/XP multipliers are properties of the thing you are flying. Pipe
+     gap and scroll speed are world generation — a bird that touched those
+     would hand two players different worlds on the same seed, and the
+     daily challenge and ghost replay both depend on that not happening.
+
+     Which direction is an improvement, so the sidegrade test can check
+     the promise rather than trusting the labels. */
+  const TRAIT_DIRS = { gravity: -1, maxVy: -1, hit: -1, flap: 1, power: 1, coin: 1, xp: 1, shieldHits: 1 };
+
   const SKINS = [
-    { id: 'classic', name: 'Classic', need: 0,
+    { id: 'classic', name: 'Classic', need: 0, traits: {}, baseline: 'Baseline — the bird every other is measured against',
       p: { O: '#302010', B: '#f8d840', L: '#fbf0b8', W: '#e8ac1c', E: '#ffffff', P: '#2a1c10', K: '#f2762a', S: '#c9531a' } },
-    { id: 'sky', name: 'Bluebird', need: 5,
+    { id: 'sky', name: 'Bluebird', need: 5, traits: { gravity: 0.92, flap: 0.93 }, up: 'Floats', down: 'Weaker flap',
       p: { O: '#132741', B: '#4fb6f0', L: '#dff1ff', W: '#2b86c9', E: '#ffffff', P: '#10202f', K: '#ffb03a', S: '#d1811d' } },
-    { id: 'ember', name: 'Ember', need: 15,
+    { id: 'ember', name: 'Ember', need: 15, traits: { flap: 1.09, gravity: 1.08 }, up: 'Punchy flap', down: 'Falls heavy',
       p: { O: '#3d1006', B: '#f0532c', L: '#ffd08a', W: '#c22f18', E: '#fff2d0', P: '#3d1006', K: '#ffd23f', S: '#d19a1a' } },
-    { id: 'ghost', name: 'Ghost', need: 25,
+    { id: 'ghost', name: 'Ghost', need: 25, traits: { hit: 0.86, maxVy: 1.15 }, up: 'Slips through gaps', down: 'Dives fast',
       p: { O: '#8fa7c4', B: '#e9f2ff', L: '#ffffff', W: '#c3d6ee', E: '#ffffff', P: '#4a5b74', K: '#b9c9e0', S: '#93a7c2' }, alpha: 0.72 },
-    { id: 'circuit', name: 'Circuit', need: 40,
+    { id: 'circuit', name: 'Circuit', need: 40, traits: { power: 1.4, hit: 1.1 }, up: 'Power-ups last longer', down: 'Broad wings',
       p: { O: '#04150f', B: '#1d3b30', L: '#3ef2a0', W: '#12634a', E: '#3ef2a0', P: '#04150f', K: '#8affd0', S: '#35b98d' } },
 
     /* Everything below is bought with coins. The five above stay on score
        thresholds — they were earned before the shop existed, and putting a
        price on them afterwards would take them back. */
-    { id: 'mint', name: 'Mint', cost: 40,
+    { id: 'mint', name: 'Mint', cost: 40, traits: { hit: 0.9, coin: 0.9 }, up: 'Nimble', down: 'Earns less',
       p: { O: '#123b32', B: '#7fe0c0', L: '#e6fff7', W: '#43b596', E: '#ffffff', P: '#123b32', K: '#ffd66b', S: '#d9a63f' } },
-    { id: 'plum', name: 'Plum', cost: 55,
+    { id: 'plum', name: 'Plum', cost: 55, traits: { maxVy: 0.86, flap: 0.94 }, up: 'Sinks slowly', down: 'Weaker flap',
       p: { O: '#2c1030', B: '#a65cd6', L: '#f0d6ff', W: '#7a3fa8', E: '#ffffff', P: '#2c1030', K: '#ffc24d', S: '#cf8f1f' } },
-    { id: 'coal', name: 'Coal', cost: 70,
+    { id: 'coal', name: 'Coal', cost: 70, traits: { shieldHits: 2, gravity: 1.12 }, up: 'Shields take two hits', down: 'Heavy',
       p: { O: '#0a0a0c', B: '#3b3d46', L: '#8b8f9c', W: '#26282f', E: '#ff5b4a', P: '#0a0a0c', K: '#c9ccd6', S: '#8b8f9c' } },
-    { id: 'candy', name: 'Candy', cost: 85,
+    { id: 'candy', name: 'Candy', cost: 85, traits: { coin: 1.2, hit: 1.12 }, up: 'Earns more', down: 'Broad wings',
       p: { O: '#4a1030', B: '#ff9ec4', L: '#fff0f6', W: '#e8628f', E: '#ffffff', P: '#4a1030', K: '#8fe3ff', S: '#4fb0d8' } },
-    { id: 'gilded', name: 'Gilded', cost: 120,
+    { id: 'gilded', name: 'Gilded', cost: 120, traits: { coin: 1.35, gravity: 1.1 }, up: 'Earns much more', down: 'Heavy',
       p: { O: '#4a3406', B: '#f5c33b', L: '#fff3c4', W: '#c99114', E: '#fffdf2', P: '#4a3406', K: '#fff3c4', S: '#c99114' } },
-    { id: 'abyss', name: 'Abyss', cost: 150,
+    { id: 'abyss', name: 'Abyss', cost: 150, traits: { maxVy: 0.8, power: 0.75 }, up: 'Drifts down gently', down: 'Short power-ups',
       p: { O: '#01050e', B: '#10254a', L: '#4fd8ff', W: '#071634', E: '#4fd8ff', P: '#01050e', K: '#2b7fb8', S: '#155578' } },
-    { id: 'prism', name: 'Prism', cost: 200, shimmer: true,
+    { id: 'prism', name: 'Prism', cost: 200, shimmer: true, traits: { xp: 1.3, flap: 0.95 }, up: 'Learns faster', down: 'Weaker flap',
       p: { O: '#1a1030', B: '#8fd8ff', L: '#ffe6ff', W: '#b98fff', E: '#ffffff', P: '#1a1030', K: '#ffd36b', S: '#d8a03f' } }
   ];
 
@@ -1018,6 +1082,49 @@
   const GUST_DUR = 70, GUST_FORCE = 0.17;
   const FOG_DUR = 150;
 
+  /* ── feathers ─────────────────────────────────────────────────────
+     Mild global perks, unlocked by level and equipped into slots. Like
+     traits, strictly bird-side. Prestige will later make some permanent,
+     which is why they exist as their own list rather than being folded
+     into the birds. */
+  const FEATHERS = [
+    { id: 'thrift',  name: 'Thrift',   need: 1,  hue: ['#f5c33b', '#c99114'], traits: { coin: 1.12 },   blurb: 'Every pipe pays a little more' },
+    { id: 'study',   name: 'Study',    need: 3,  hue: ['#8fd8ff', '#3f7fd6'], traits: { xp: 1.15 },     blurb: 'Runs teach you faster' },
+    { id: 'lift',    name: 'Updraft',  need: 8,  hue: ['#cdefff', '#7fb8d8'], traits: { gravity: 0.95 }, blurb: 'The air holds you up a touch' },
+    { id: 'slim',    name: 'Slipstream', need: 12, hue: ['#a6e9b4', '#43b596'], traits: { hit: 0.94 },  blurb: 'A slightly finer profile' },
+    { id: 'charge',  name: 'Reservoir', need: 18, hue: ['#c9a0ff', '#8a5ad0'], traits: { power: 1.25 }, blurb: 'Power-ups run longer' },
+    { id: 'plate',   name: 'Plating',  need: 26, hue: ['#e0e6ee', '#8b8f9c'], traits: { shieldHits: 2 }, blurb: 'Shields take an extra hit' }
+  ];
+  const SLOT_LEVELS = [5, 15, 30];        // level at which each slot opens
+  const slotsAt = lvl => SLOT_LEVELS.filter(n => lvl >= n).length;
+
+  /* Everything the bird is, combined: its innate traits plus whatever
+     feathers are equipped. Multipliers multiply; shieldHits takes the
+     best rather than stacking, so two sources cannot make you invincible. */
+  function traitsNow() {
+    const out = { gravity: 1, flap: 1, maxVy: 1, hit: 1, power: 1, coin: 1, xp: 1, shieldHits: 1 };
+    const apply = tr => {
+      if (!tr) return;
+      for (const k of Object.keys(out)) {
+        if (tr[k] == null) continue;
+        if (k === 'shieldHits') out[k] = Math.max(out[k], tr[k]);
+        else out[k] *= tr[k];
+      }
+    };
+    apply(G.skin && G.skin.traits);
+    for (const f of equippedFeathers()) apply(f.traits);
+    return out;
+  }
+
+  function equippedFeathers() {
+    if (!profile) return [];
+    const lvl = levelFor(profile.xp || 0);
+    return (profile.feathers || [])
+      .map(id => FEATHERS.find(f => f.id === id))
+      .filter(f => f && lvl >= f.need)
+      .slice(0, slotsAt(lvl));
+  }
+
   const byId = (list, id) => list.find(x => x.id === id) || list[0];
 
   /* Ownership is keyed by kind:id, not id alone. Ids only have to be
@@ -1134,14 +1241,24 @@
     flash: 0,
     shake: 0,
     overAt: 0,
-    shield: false,
+    shield: 0,
     slow: 0,          // remaining slow-mo ticks
     invuln: 0,
     lastGap: 200,
     runTicks: 0,
     runCoins: 0,
+    runXp: 0,
+    levelUp: 0,
+    beatBest: false,
     seed: 0,
     rng: mulberry32(1),
+    maxVy: MAX_VY,
+    hitW: HIT_W,
+    hitH: HIT_H,
+    puTicks: PU_TICKS,
+    shieldHits: 1,
+    coinMul: 1,
+    xpMul: 1,
     paused: false,
     runAssist: false,
     pipeIndex: 0,
@@ -1189,7 +1306,7 @@
     G.ticks = 0;
     G.flash = 0;
     G.shake = 0;
-    G.shield = false;
+    G.shield = 0;
     G.slow = 0;
     G.invuln = 0;
     G.lastGap = 200;
@@ -1311,10 +1428,21 @@
     G.patStep = 0;
     G.gust = null;
     G.fog = null;
-    G.gravity = GRAVITY * (G.runAssist ? ASSIST.gravity : 1);
-    G.flapV   = FLAP_V  * (G.runAssist ? ASSIST.flap : 1);
+    // Traits and feathers are BIRD-side only. G.gap and G.speed below are
+    // world generation and are deliberately left untouched by them, so the
+    // same seed builds the same world whatever you are flying.
+    const t = traitsNow();
+    G.gravity = GRAVITY * (G.runAssist ? ASSIST.gravity : 1) * t.gravity;
+    G.flapV   = FLAP_V  * (G.runAssist ? ASSIST.flap : 1) * t.flap;
     G.gap     = GAP     + (G.runAssist ? ASSIST.gap : 0);
     G.speed   = SPEED   * (G.runAssist ? ASSIST.speed : 1);
+    G.maxVy   = MAX_VY * t.maxVy;
+    G.hitW    = HIT_W * t.hit;
+    G.hitH    = HIT_H * t.hit;
+    G.puTicks = Math.round(PU_TICKS * t.power);
+    G.shieldHits = Math.max(1, Math.round(t.shieldHits));
+    G.coinMul = t.coin;
+    G.xpMul   = t.xp;
     trail.length = 0;
     pipes.length = 0;
     powers.length = 0;
@@ -1349,7 +1477,8 @@
     // An assist run is played on gentler physics, so it is not the same
     // record. It still earns coins; it just does not set a best score,
     // and the panel says so rather than withholding it silently.
-    if (!G.runAssist && G.score > G.best) { G.best = G.score; G.newBest = true; buildSheet(); }
+    G.beatBest = !G.runAssist && G.score > G.best;
+    if (G.beatBest) { G.best = G.score; G.newBest = true; buildSheet(); }
     recordRun();
     syncStage();
   }
@@ -1362,10 +1491,18 @@
     st.longest = Math.max(st.longest, G.runTicks);
     if (!G.runAssist && G.score > profile.best) profile.best = G.score;
     const m = medalFor(G.score);
-    if (m) {
-      st[m.name.toLowerCase()]++;
-      earn(MEDAL_BONUS[m.name.toLowerCase()] || 0);
+    const medal = m ? m.name.toLowerCase() : null;
+    if (medal) {
+      st[medal]++;
+      earn(MEDAL_BONUS[medal] || 0);
     }
+
+    // XP rewards depth and improvement, where coins reward volume.
+    const before = levelFor(profile.xp);
+    G.runXp = Math.round(runXp(G.score, medal, G.beatBest) * G.xpMul);
+    profile.xp += G.runXp;
+    G.levelUp = levelFor(profile.xp) - before;
+
     saveProfile();
     buildPlayers();
   }
@@ -1379,10 +1516,10 @@
   }
 
   function hitsPipe(p) {
-    const bx = bird.x - HIT_W / 2, by = bird.y - HIT_H / 2;
-    if (bx + HIT_W < p.x || bx > p.x + PIPE_W) return false;
+    const bx = bird.x - G.hitW / 2, by = bird.y - G.hitH / 2;
+    if (bx + G.hitW < p.x || bx > p.x + PIPE_W) return false;
     const h = p.h || G.gap;
-    return by < p.gap - h / 2 || by + HIT_H > p.gap + h / 2;
+    return by < p.gap - h / 2 || by + G.hitH > p.gap + h / 2;
   }
 
   function tick() {
@@ -1402,7 +1539,7 @@
       G.cycle += G.speed;
     } else if (G.state === PLAYING) {
       G.runTicks++;
-      bird.vy = clamp(bird.vy + G.gravity * ts, -20, MAX_VY);
+      bird.vy = clamp(bird.vy + G.gravity * ts, -20, G.maxVy);
       bird.y += bird.vy * ts;
       G.scroll += G.speed * ts;
       G.cycle += G.speed * ts;
@@ -1445,10 +1582,10 @@
       for (const q of powers) {
         if (q.got) continue;
         const dx = Math.abs(q.x - bird.x), dy = Math.abs(q.y - bird.y);
-        if (dx < PU_R + HIT_W / 2 && dy < PU_R + HIT_H / 2) {
+        if (dx < PU_R + G.hitW / 2 && dy < PU_R + G.hitH / 2) {
           q.got = true;
-          if (q.kind === 'shield') G.shield = true;
-          else G.slow = PU_TICKS;
+          if (q.kind === 'shield') G.shield = G.shieldHits;
+          else G.slow = G.puTicks;
           if (profile) profile.stats.powers++;
           earn(COIN_POWER);
           audio.power();
@@ -1459,13 +1596,13 @@
       if (G.invuln > 0) G.invuln--;
 
       // Collisions.
-      if (bird.y + HIT_H / 2 >= GY) { bird.y = GY - HIT_H / 2; die(false); }
-      else if (bird.y - HIT_H / 2 < 0) { bird.y = HIT_H / 2; bird.vy = 0; }
+      if (bird.y + G.hitH / 2 >= GY) { bird.y = GY - G.hitH / 2; die(false); }
+      else if (bird.y - G.hitH / 2 < 0) { bird.y = G.hitH / 2; bird.vy = 0; }
       else if (G.invuln === 0) {
         for (const p of pipes) {
           if (hitsPipe(p)) {
-            if (G.shield) {
-              G.shield = false;
+            if (G.shield > 0) {
+              G.shield--;      // Coal carries two
               G.invuln = SHIELD_IV;
               bird.vy = Math.min(bird.vy, -3.4);
               audio.pop();
@@ -1483,10 +1620,10 @@
       const target = bird.vy < 0 ? -0.42 : clamp(bird.vy * 0.13, -0.42, 1.5);
       bird.rot += (target - bird.rot) * 0.18;
     } else if (G.state === DYING) {
-      bird.vy = clamp(bird.vy + G.gravity * 1.1, -20, MAX_VY);
+      bird.vy = clamp(bird.vy + G.gravity * 1.1, -20, G.maxVy);
       bird.y += bird.vy;
       bird.rot = Math.min(bird.rot + 0.11, 1.62);
-      if (bird.y + HIT_H / 2 >= GY) { bird.y = GY - HIT_H / 2; land(); }
+      if (bird.y + G.hitH / 2 >= GY) { bird.y = GY - G.hitH / 2; land(); }
     }
 
     // Trail: cosmetic particles behind the bird. Emission thins out under
@@ -1805,11 +1942,11 @@
     if (G.slow > 0 && G.state === PLAYING) {
       const w = 74, x = (W - w) / 2, y = 88;
       ctx.fillStyle = 'rgba(20,16,34,.45)'; ctx.fillRect(x - 1, y - 1, w + 2, 7);
-      ctx.fillStyle = '#c9a0ff';            ctx.fillRect(x, y, w * (G.slow / PU_TICKS), 5);
+      ctx.fillStyle = '#c9a0ff';            ctx.fillRect(x, y, w * clamp(G.slow / G.puTicks, 0, 1), 5);
       textOut(ctx, 'SLOW-MO', W / 2, y + 15, 6, '#e5d4ff', '#231a3a');
     }
     if (G.shield && G.state === PLAYING) {
-      textOut(ctx, 'SHIELD', W / 2, G.slow > 0 ? 118 : 92, 6, '#cdf0ff', '#123244');
+      textOut(ctx, G.shield > 1 ? 'SHIELD x' + G.shield : 'SHIELD', W / 2, G.slow > 0 ? 118 : 92, 6, '#cdf0ff', '#123244');
     }
   }
 
@@ -1836,6 +1973,19 @@
     ctx.beginPath(); ctx.arc(x - 4, y - 5, 3, 0, Math.PI * 2); ctx.fill();
   }
 
+  // Level badge with a progress bar — small, and only where there is room.
+  function drawLevel(cx, y) {
+    if (!profile) return;
+    const lvl = levelFor(profile.xp);
+    const frac = levelProgress(profile.xp);
+    const w = 96;
+    textOut(ctx, 'LEVEL ' + lvl, cx, y, 7, '#ffe07a', '#20160a');
+    ctx.fillStyle = 'rgba(20,16,34,.42)';
+    ctx.fillRect(cx - w / 2 - 1, y + 8, w + 2, 6);
+    ctx.fillStyle = '#ffc93d';
+    ctx.fillRect(cx - w / 2, y + 9, Math.max(1, w * frac), 4);
+  }
+
   function drawReady() {
     textOut(ctx, 'DreyBird', W / 2, 128, 22, '#ffe07a', '#20160a');
     textOut(ctx, 'A FLAPPY TRIBUTE', W / 2, 158, 7, '#ffffff', '#20160a');
@@ -1843,7 +1993,10 @@
       textOut(ctx, 'TAP TO FLAP', W / 2, 316, 11, '#ffffff', '#20160a');
     }
     textOut(ctx, 'BEST  ' + G.best, W / 2, 356, 8, '#ffe07a', '#20160a');
-    if (profile) textOut(ctx, profile.name.toUpperCase(), W / 2, 176, 7, '#d8f2ff', '#20160a');
+    if (profile) {
+      textOut(ctx, profile.name.toUpperCase(), W / 2, 176, 7, '#d8f2ff', '#20160a');
+      drawLevel(W / 2, 196);
+    }
   }
 
   function drawOver() {
@@ -1874,6 +2027,14 @@
     textOut(ctx, String(G.score), rx, pyy + 36, 15, '#ffffff', '#20160a', 'right');
     textOut(ctx, 'BEST', rx, pyy + 62, 7, '#8d7c4c', '#e7dcb4', 'right');
     textOut(ctx, String(G.best), rx, pyy + 80, 15, '#ffffff', '#20160a', 'right');
+
+    if (G.runXp > 0) {
+      textOut(ctx, '+' + G.runXp + ' XP', pxx + pw - 16, pyy + 88, 6,
+        G.beatBest ? '#ffe07a' : '#8d7c4c', '#e7dcb4', 'right');
+    }
+    if (G.levelUp > 0) {
+      textOut(ctx, 'LEVEL ' + levelFor(profile ? profile.xp : 0) + '!', W / 2, pyy - 16, 9, '#ffe07a', '#20160a');
+    }
 
     if (G.runAssist) {
       textOut(ctx, 'ASSIST MODE', W / 2, pyy + ph + 18, 7, '#9fd8ff', '#20160a');
@@ -2087,6 +2248,26 @@
     return c;
   }
 
+  function featherPreview(f, dim) {
+    const [c, g] = previewCanvas(PV_W, PV_H);
+    g.globalAlpha = dim ? 0.35 : 1;
+    // Each perk carries its own colour, so six rows are scannable rather
+    // than six identical feathers in whatever the current bird happens
+    // to be wearing.
+    const pal = { O: '#20160a', B: f.hue[1], L: f.hue[0] };
+    const cx = PV_W / 2, cy = PV_H / 2;
+    g.fillStyle = pal.O;
+    g.fillRect(cx - 1, cy - 14, 3, 28);
+    for (let i = 0; i < 9; i++) {
+      const w = Math.round(3 + Math.sin((i / 9) * Math.PI) * 8);
+      g.fillStyle = i % 2 ? pal.B : pal.L;
+      g.fillRect(cx - 1 - w, cy - 12 + i * 3, w, 3);
+      g.fillStyle = i % 2 ? pal.L : pal.B;
+      g.fillRect(cx + 2, cy - 12 + i * 3, w, 3);
+    }
+    return c;
+  }
+
   /* ── shop ─────────────────────────────────────────────────────────
      Buying and equipping are the same screen: it is where someone goes
      looking for their birds anyway. */
@@ -2094,17 +2275,33 @@
     { kind: 'bird',  list: () => SKINS,  preview: skinPreview,  equip: 'skin' },
     { kind: 'hat',   list: () => HATS,   preview: hatPreview,   equip: 'hat' },
     { kind: 'trail', list: () => TRAILS, preview: trailPreview, equip: 'trail' },
-    { kind: 'world', list: () => WORLDS, preview: worldPreview, equip: 'world' }
+    { kind: 'world', list: () => WORLDS, preview: worldPreview, equip: 'world' },
+    { kind: 'feather', list: () => FEATHERS, preview: featherPreview, equip: null }
   ];
   let shopKind = 'bird';
 
   function equipped(tab, item) {
-    return profile ? profile[tab.equip] === item.id : false;
+    if (!profile) return false;
+    if (tab.kind === 'feather') return (profile.feathers || []).indexOf(item.id) >= 0;
+    return profile[tab.equip] === item.id;
   }
 
   function equip(tab, item) {
     if (!profile) return;
-    profile[tab.equip] = item.id;
+    if (tab.kind === 'feather') {
+      // Perks toggle into a limited number of slots. Equipping a fourth
+      // with three slots is refused rather than silently dropping one.
+      const list = profile.feathers || (profile.feathers = []);
+      const at = list.indexOf(item.id);
+      if (at >= 0) list.splice(at, 1);
+      else {
+        if (levelFor(profile.xp) < item.need) return;
+        if (list.length >= slotsAt(levelFor(profile.xp))) return;
+        list.push(item.id);
+      }
+    } else {
+      profile[tab.equip] = item.id;
+    }
     saveProfile();
     applyProfile();
     buildSheet();
@@ -2113,6 +2310,15 @@
   }
 
   function cardLabel(tab, item) {
+    if (tab.kind === 'feather') {
+      const lvl = profile ? levelFor(profile.xp) : 1;
+      if (lvl < item.need) return { text: 'Unlocks at level ' + item.need, cls: 'price short' };
+      if (equipped(tab, item)) return { text: 'Equipped — ' + item.blurb, cls: 'req' };
+      const free = slotsAt(lvl) - (profile ? (profile.feathers || []).length : 0);
+      return free > 0
+        ? { text: item.blurb, cls: 'req' }
+        : { text: 'No free slot — ' + item.blurb, cls: 'price short' };
+    }
     if (item.need != null && !available(item)) return { text: 'Reach a best of ' + item.need, cls: 'req' };
     if (!owns(item)) {
       const short = profile ? item.cost - profile.coins : item.cost;
@@ -2123,10 +2329,25 @@
     return { text: equipped(tab, item) ? 'Equipped' : 'Tap to equip', cls: 'req' };
   }
 
+  function tag(cls, text) {
+    const el = document.createElement('span');
+    el.className = 'tag ' + cls;
+    el.textContent = (cls === 'up' ? '+ ' : cls === 'down' ? '− ' : '') + text;
+    return el;
+  }
+
   function buildSheet() {
     const tab = TABS.find(t => t.kind === shopKind) || TABS[0];
     const wallet = document.getElementById('wallet');
-    if (wallet) wallet.textContent = profile ? profile.coins : 0;
+    if (wallet) {
+      const lvl = profile ? levelFor(profile.xp) : 1;
+      const used = profile ? (profile.feathers || []).length : 0;
+      wallet.textContent = shopKind === 'feather'
+        ? 'LV ' + lvl + '  ·  ' + used + '/' + slotsAt(lvl) + ' SLOTS'
+        : String(profile ? profile.coins : 0);
+    }
+    const coinDot = document.querySelector('.wallet .coin');
+    if (coinDot) coinDot.style.display = shopKind === 'feather' ? 'none' : '';
 
     for (const b of document.querySelectorAll('#shop-tabs .tab')) {
       b.setAttribute('aria-selected', String(b.dataset.kind === shopKind));
@@ -2154,6 +2375,16 @@
       req.className = label.cls;
       req.textContent = label.text;
       meta.append(name, req);
+
+      if (tab.kind === 'bird' && (item.up || item.baseline)) {
+        const tr = document.createElement('span');
+        tr.className = 'trade';
+        // The baseline bird trades nothing, so it gets a neutral note
+        // rather than a red mark against flavour text.
+        if (item.baseline) tr.append(tag('even', item.baseline));
+        else tr.append(tag('up', item.up), tag('down', item.down));
+        meta.appendChild(tr);
+      }
       b.appendChild(meta);
 
       b.addEventListener('click', () => {
@@ -2402,7 +2633,8 @@
   function summarise(p) {
     const st = p.stats;
     const medals = st.platinum + st.gold + st.silver + st.bronze;
-    const bits = ['Best ' + p.best, st.games + (st.games === 1 ? ' game' : ' games')];
+    const bits = ['Lv ' + levelFor(p.xp || 0), 'Best ' + p.best,
+                  st.games + (st.games === 1 ? ' game' : ' games')];
     if (medals) bits.push(medals + (medals === 1 ? ' medal' : ' medals'));
     return bits.join('  ·  ');
   }
@@ -2563,6 +2795,10 @@
         // something already bought, or hand back coins already spent.
         mine.best = Math.max(mine.best, incoming.best);
         mine.coins = Math.max(mine.coins, incoming.coins);
+        mine.xp = Math.max(mine.xp, incoming.xp);
+        for (const f of incoming.feathers) {
+          if (mine.feathers.indexOf(f) < 0) mine.feathers.push(f);
+        }
         for (const k of Object.keys(mine.stats)) {
           mine.stats[k] = Math.max(mine.stats[k], incoming.stats[k] || 0);
         }
@@ -2726,7 +2962,10 @@
       setTab: k => { shopKind = k; buildSheet(); },
       setBackground, phaseList, phaseNow,
       pauseRun, resumeRun, endRun,
-      physics: () => ({ gravity: G.gravity, flapV: G.flapV, gap: G.gap, speed: G.speed, assist: G.runAssist }),
+      physics: () => ({ gravity: G.gravity, flapV: G.flapV, gap: G.gap, speed: G.speed,
+                        maxVy: G.maxVy, hitW: G.hitW, hitH: G.hitH, puTicks: G.puTicks,
+                        shieldHits: G.shieldHits, coinMul: G.coinMul, xpMul: G.xpMul,
+                        assist: G.runAssist }),
       paused: () => G.paused,
       openSettings, closeSettings,
       seed: () => G.seed,
@@ -2736,6 +2975,11 @@
                     gust: G.gust && { at: G.gust.at, until: G.gust.until, force: G.gust.force },
                     fog: G.fog && { until: G.fog.until, y: G.fog.y } }),
       COIN_PIPE, COIN_POWER, MEDAL_BONUS,
+      FEATHERS, TRAIT_DIRS, SLOT_LEVELS,
+      xpForLevel, levelFor, levelProgress, runXp, slotsAt,
+      traitsNow, equippedFeathers,
+      xp: () => (profile ? profile.xp : 0),
+      level: () => levelFor(profile ? profile.xp : 0),
       openPlayers, closePlayers,
       storage: () => ({ backend: vault.kind, persisted: persisted }),
       flush: () => vault.flush()

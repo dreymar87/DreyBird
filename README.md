@@ -86,6 +86,33 @@ Hazard frequency ramps on how far into the run you are, and **assist mode
 halves it**. Everything is drawn from the seed, so two people playing the
 same seed meet the same formations and the same weather.
 
+## Levels and birds
+
+Every run pays **XP** as well as coins, and they measure different things:
+coins reward volume (a coin a pipe), XP rewards depth and improvement —
+your score plus your medal, doubled when you beat your own best. XP is
+only ever earned, never spent, so buying a hat never costs you progress.
+
+**The twelve birds now fly differently**, and every one of them trades
+something. Ember has a punchy flap but falls heavy; Ghost slips through
+gaps but dives fast; Coal's shield takes two hits but it's heavy; Gilded
+earns much more but sinks. Classic is the baseline and trades nothing.
+Each card shows its trade before you buy.
+
+No bird is strictly better than another — that's enforced by a test, not
+by good intentions: every non-baseline bird must be better at something
+*and* worse at something, or the suite fails.
+
+**Perks** ("feathers") unlock with level and equip into slots that open at
+levels 5, 15 and 30. They're mild global modifiers — a coin bonus, longer
+power-ups, an extra shield hit.
+
+Traits and perks change **the bird, never the world**. Pipe layout, gap
+width, speed and hazards come from the seed alone, so two people on the
+same seed fly the same world whatever they've equipped. That's what makes
+a shared daily challenge possible later, and a test asserts it across all
+twelve birds.
+
 ## Comfort
 
 Settings (the gear, top-left) also holds:
@@ -191,6 +218,7 @@ node test/cosmetics.mjs  # 15 economy, shop and rendering checks
 node test/determinism.mjs # 12 seeded-run and background checks
 node test/comfort.mjs    # 16 haptics, pause and assist checks
 node test/dynamics.mjs   # 16 formation and hazard checks
+node test/progression.mjs # 23 XP, trait and perk checks
 node test/make-icons.mjs # regenerate the app icons
 ```
 

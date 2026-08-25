@@ -127,12 +127,12 @@ check('falling ends the run and reaches GAME OVER', crash.dying === 2 && crash.o
 const shield = await page.evaluate(() => {
   const d = __dreybird;
   d.resetWorld(); d.startPlay(); if (d.resumeRun) d.resumeRun();
-  d.G.shield = true;
+  d.G.shield = 1;                        // a count now — Coal carries two
   const p = d.pipes[0];
   p.x = d.bird.x - 10;              // put the bird inside a pipe column
   p.gap = d.bird.y + 200;           // ...well above the gap
   d.tick();
-  const survivedFirst = d.G.state === 1 && d.G.shield === false;
+  const survivedFirst = d.G.state === 1 && d.G.shield === 0;
   d.G.invuln = 0;
   const p2 = d.pipes.find(q => q.x + d.PIPE_W > d.bird.x - 20) || d.pipes[0];
   p2.x = d.bird.x - 10; p2.gap = d.bird.y + 200;
@@ -179,7 +179,7 @@ check('shop cards are styled, not default browser buttons',
 await page.evaluate(() => {
   const d = __dreybird;
   d.resetWorld(); d.startPlay(); if (d.resumeRun) d.resumeRun();
-  d.G.score = 14; d.G.slow = d.PU_TICKS * 0.7; d.G.shield = true;
+  d.G.score = 14; d.G.slow = d.PU_TICKS * 0.7; d.G.shield = 1;
   for (let i = 0; i < 40; i++) { if (d.bird.y > 240) d.flap(); d.tick(); }
 });
 await page.waitForTimeout(120);

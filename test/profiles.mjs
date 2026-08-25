@@ -273,6 +273,22 @@ async function fresh(init) {
     const round = JSON.parse(JSON.stringify(save)).profiles.find(x => x.id === p.id);
     return { haptics: round.haptics, assist: round.assist, bg: round.bg };
   });
+  const prog = await page.evaluate(() => {
+    const d = __dreybird;
+    const p = d.active();
+    p.xp = d.xpForLevel(16);
+    p.feathers = [];
+    d.equip('feather', 'thrift');
+    const rich = d.exportSave();
+    const stale = JSON.parse(JSON.stringify(rich));
+    stale.profiles = stale.profiles.map(x => x.id === p.id ? { ...x, xp: 1, feathers: [] } : x);
+    d.importSave(stale);
+    const after = d.profiles().find(x => x.id === p.id);
+    return { xp: after.xp, level: d.levelFor(after.xp), feathers: after.feathers.slice() };
+  });
+  check('a stale import never lowers XP or strips an equipped perk',
+    prog.level === 16 && prog.feathers.indexOf('thrift') >= 0, JSON.stringify(prog));
+
   check('haptics, assist and the background choice survive an export',
     comfort.haptics === true && comfort.assist === true && comfort.bg === 1,
     JSON.stringify(comfort));
