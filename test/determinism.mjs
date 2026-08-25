@@ -27,7 +27,7 @@ async function fresh() {
 // Plays a fixed script of flaps so the run depends on nothing but the seed.
 const SCRIPTED = `(seed, flapEvery) => {
   const d = window.__dreybird;
-  d.resetWorld(); d.startPlay(seed);
+  d.resetWorld(); d.startPlay(seed); if (d.resumeRun) d.resumeRun();
   const gaps = [], powers = [];
   for (let i = 0; i < 900 && d.G.state === d.states.PLAYING; i++) {
     if (i % flapEvery === 0) d.flap();
@@ -60,7 +60,7 @@ const SCRIPTED = `(seed, flapEvery) => {
   // people sharing a daily seed would diverge the moment one scored.
   const pipesOnly = `(seed, flapEvery) => {
     const d = window.__dreybird;
-    d.resetWorld(); d.startPlay(seed);
+    d.resetWorld(); d.startPlay(seed); if (d.resumeRun) d.resumeRun();
     const gaps = [];
     for (let i = 0; i < 900; i++) {
       if (i % flapEvery === 0) d.flap();
@@ -86,7 +86,7 @@ const SCRIPTED = `(seed, flapEvery) => {
   const same = await page.evaluate(() => {
     const d = __dreybird;
     const shot = () => {
-      d.resetWorld(); d.startPlay(777);
+      d.resetWorld(); d.startPlay(777); if (d.resumeRun) d.resumeRun();
       for (let i = 0; i < 40; i++) { if (i % 11 === 0) d.flap(); d.tick(); }
       return d.G.score + ':' + Math.round(d.bird.y * 1000);
     };

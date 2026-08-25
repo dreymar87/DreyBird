@@ -66,6 +66,21 @@ you'd rather it held still, Settings (the gear, top-left) lets you pin any
 one of them. You pick by looking at a strip of the actual sky rather than
 choosing a name from a list, and the choice is saved per player.
 
+## Comfort
+
+Settings (the gear, top-left) also holds:
+
+- **Haptics** — a buzz on flap and crash. Off by default, and Android only:
+  iPhones ignore vibration from a web page whatever you set here.
+- **Assist mode** — gentler gravity, a softer flap, a wider gap and slower
+  pipes, for anyone finding the original feel too punishing. Assist runs
+  earn coins normally but **do not set a best score**, and the game-over
+  panel says so. A record set on easier physics isn't the same record, and
+  quietly recording it would be worse than not recording it.
+
+**Pause** appears in the top-right while you're flying, and leaving the tab
+pauses automatically rather than costing you the run.
+
 ## How to play
 
 | Input | Action |
@@ -154,6 +169,7 @@ node test/pwa.mjs        # installability + a real offline run
 node test/profiles.mjs   # 20 storage, profile and import/export checks
 node test/cosmetics.mjs  # 15 economy, shop and rendering checks
 node test/determinism.mjs # 12 seeded-run and background checks
+node test/comfort.mjs    # 16 haptics, pause and assist checks
 node test/make-icons.mjs # regenerate the app icons
 ```
 

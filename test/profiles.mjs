@@ -79,7 +79,7 @@ async function fresh(init) {
   const out = await page.evaluate(async () => {
     const d = __dreybird;
     const play = score => {                    // finish a run worth `score`
-      d.resetWorld(); d.startPlay();
+      d.resetWorld(); d.startPlay(); if (d.resumeRun) d.resumeRun();
       d.G.score = score; d.G.state = d.states.DYING; d.bird.y = 999;
       for (let i = 0; i < 400 && d.G.state !== d.states.OVER; i++) d.tick();
     };
@@ -119,7 +119,7 @@ async function fresh(init) {
   await page.evaluate(async () => {
     const d = __dreybird;
     d.createProfile('Kestrel');
-    d.resetWorld(); d.startPlay();
+    d.resetWorld(); d.startPlay(); if (d.resumeRun) d.resumeRun();
     d.G.score = 31; d.G.state = d.states.DYING; d.bird.y = 999;
     for (let i = 0; i < 400 && d.G.state !== d.states.OVER; i++) d.tick();
     await d.flush();
@@ -140,7 +140,7 @@ async function fresh(init) {
   // chance to cooperate, so prove the write lands on its own too.
   await page.evaluate(() => {
     const d = __dreybird;
-    d.resetWorld(); d.startPlay();
+    d.resetWorld(); d.startPlay(); if (d.resumeRun) d.resumeRun();
     d.G.score = 44; d.G.state = d.states.DYING; d.bird.y = 999;
     for (let i = 0; i < 400 && d.G.state !== d.states.OVER; i++) d.tick();
   });
@@ -210,7 +210,7 @@ async function fresh(init) {
   const round = await page.evaluate(async () => {
     const d = __dreybird;
     const p = d.createProfile('Export Me');
-    d.resetWorld(); d.startPlay();
+    d.resetWorld(); d.startPlay(); if (d.resumeRun) d.resumeRun();
     d.G.score = 17; d.G.state = d.states.DYING; d.bird.y = 999;
     for (let i = 0; i < 400 && d.G.state !== d.states.OVER; i++) d.tick();
     const save = d.exportSave();
@@ -229,7 +229,7 @@ async function fresh(init) {
     const p = d.active();
     // Give the live profile a real record first, so the stale copy below
     // is genuinely worse and the merge has something to protect.
-    d.resetWorld(); d.startPlay();
+    d.resetWorld(); d.startPlay(); if (d.resumeRun) d.resumeRun();
     d.G.score = 26; d.G.state = d.states.DYING; d.bird.y = 999;
     for (let i = 0; i < 400 && d.G.state !== d.states.OVER; i++) d.tick();
     const before = d.profiles().find(x => x.id === p.id).best;
@@ -264,6 +264,19 @@ async function fresh(init) {
     wallet.coins === 500 - 110 - 260 &&
     wallet.owned.join() === 'hat:crown,trail:spark,world:neon', JSON.stringify(wallet));
 
+  // Comfort settings travel with the save too.
+  const comfort = await page.evaluate(() => {
+    const d = __dreybird;
+    const p = d.active();
+    p.haptics = true; p.assist = true; p.bg = 1;
+    const save = d.exportSave();
+    const round = JSON.parse(JSON.stringify(save)).profiles.find(x => x.id === p.id);
+    return { haptics: round.haptics, assist: round.assist, bg: round.bg };
+  });
+  check('haptics, assist and the background choice survive an export',
+    comfort.haptics === true && comfort.assist === true && comfort.bg === 1,
+    JSON.stringify(comfort));
+
   const junk = await page.evaluate(() => __dreybird.importSave({ hello: 'world' }));
   check('a file that is not a DreyBird save is refused', junk.ok === false, JSON.stringify(junk));
   await context.close();
@@ -281,7 +294,7 @@ async function fresh(init) {
   await page.evaluate(async () => {
     const d = __dreybird;
     d.createProfile('Fallback');
-    d.resetWorld(); d.startPlay();
+    d.resetWorld(); d.startPlay(); if (d.resumeRun) d.resumeRun();
     d.G.score = 8; d.G.state = d.states.DYING; d.bird.y = 999;
     for (let i = 0; i < 400 && d.G.state !== d.states.OVER; i++) d.tick();
   });
@@ -299,7 +312,7 @@ async function fresh(init) {
   await page.evaluate(async () => {
     const d = __dreybird;
     const run = score => {
-      d.resetWorld(); d.startPlay();
+      d.resetWorld(); d.startPlay(); if (d.resumeRun) d.resumeRun();
       d.G.score = score; d.G.state = d.states.DYING; d.bird.y = 999;
       for (let i = 0; i < 400 && d.G.state !== d.states.OVER; i++) d.tick();
     };

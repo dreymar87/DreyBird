@@ -121,6 +121,10 @@
   #btn-gear { left: 112px; }
   #btn-sound { right: 8px; }
   #stage[data-playing="1"] .iconbtn { opacity: .18; pointer-events: none; }
+  /* The pause control is the exception: it exists only while playing, and
+     stays live while the others fade out. */
+  #btn-pause { right: 60px; display: none; }
+  #stage[data-playing="1"] #btn-pause { display: grid; opacity: 1; pointer-events: auto; }
   .iconbtn .off-slash { display: none; }
   .iconbtn[aria-pressed="true"] .off-slash { display: block; }
   .iconbtn[aria-pressed="true"] .wave { display: none; }
@@ -443,6 +447,13 @@
     </svg>
   </button>
 
+  <button id="btn-pause" class="iconbtn" type="button" aria-label="Pause">
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <rect x="7" y="5" width="3.6" height="14" rx="1"></rect>
+      <rect x="13.4" y="5" width="3.6" height="14" rx="1"></rect>
+    </svg>
+  </button>
+
   <button id="btn-sound" class="iconbtn" type="button" aria-label="Mute sound" aria-pressed="false">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M11 5 6.5 9H3v6h3.5L11 19V5Z" fill="currentColor"></path>
@@ -468,6 +479,15 @@
     </div>
     <ul id="skin-list" class="sheet-list"></ul>
     <button id="sheet-close" class="sheet-btn" type="button">Back</button>
+  </div>
+
+  <div id="paused" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Paused">
+    <h2>Paused</h2>
+    <p class="hint" id="paused-note">Your run is waiting exactly where you left it.</p>
+    <div class="sheet-actions" style="margin-top:auto">
+      <button id="paused-resume" class="sheet-btn" type="button">Resume</button>
+      <button id="paused-quit" class="sheet-btn" type="button">End run</button>
+    </div>
   </div>
 
   <div id="settings" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Settings">
@@ -532,6 +552,13 @@
   const PU_TICKS  = 380;       // ~6.3 s of power-up
   const SLOWMO    = 0.58;
   const SHIELD_IV = 46;        // invulnerable ticks after a shield pops
+
+  /* Assist mode: gentler everything, for anyone finding the original feel
+     too punishing. A run's physics are fixed at startPlay() rather than
+     read live, so a run is internally consistent and toggling mid-run
+     cannot change how the run in progress behaves — or how it is scored.
+     Story levels and hazards will want the same per-run shape later. */
+  const ASSIST = { gravity: 0.85, flap: 0.92, gap: 18, speed: 0.9 };
 
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -711,6 +738,8 @@
       trail: 'none',
       world: 'meadow',
       bg: 'cycle',           // 'cycle', or the index of a phase to hold
+      haptics: false,
+      assist: false,
       coins: 0,
       owned: [],
       granted: false,        // back-pay for play from before the shop existed
@@ -734,6 +763,8 @@
       trail: typeof p.trail === 'string' ? p.trail : 'none',
       world: typeof p.world === 'string' ? p.world : 'meadow',
       bg: (typeof p.bg === 'number' && p.bg >= 0) || p.bg === 'cycle' ? p.bg : 'cycle',
+      haptics: p.haptics === true,
+      assist: p.assist === true,
       coins: num(p.coins, 0),
       owned: Array.isArray(p.owned) ? p.owned.filter(x => typeof x === 'string') : [],
       granted: p.granted === true,
@@ -1041,6 +1072,16 @@
     pop()    { this.tone('square', 320, 140, 0.14, 0.06); }
   };
 
+  /* ── haptics ──────────────────────────────────────────────────────
+     Off by default. Android honours it; iOS ignores vibration entirely,
+     which the setting copy says rather than implying otherwise. Wrapped
+     because some browsers throw when it is called outside a gesture, and
+     a buzz must never be able to end a run. */
+  function buzz(pattern) {
+    if (!profile || !profile.haptics) return;
+    try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (e) { /* not our problem */ }
+  }
+
   /* ── world state ────────────────────────────────────────────────── */
   const READY = 0, PLAYING = 1, DYING = 2, OVER = 3;
 
@@ -1069,6 +1110,13 @@
     runCoins: 0,
     seed: 0,
     rng: mulberry32(1),
+    paused: false,
+    runAssist: false,
+    // Effective physics for the run in progress; set by startPlay().
+    gravity: GRAVITY,
+    flapV: FLAP_V,
+    gap: GAP,
+    speed: SPEED,
     skin: SKINS[0],
     hat: HATS[0],
     trail: TRAILS[0],
@@ -1151,6 +1199,14 @@
     G.seed = seed == null ? randomSeed() : (seed >>> 0);
     G.rng = mulberry32(G.seed);
     G.lastGap = 200;
+
+    // Physics are fixed for the whole run, here, once.
+    G.runAssist = !!(profile && profile.assist);
+    G.paused = false;
+    G.gravity = GRAVITY * (G.runAssist ? ASSIST.gravity : 1);
+    G.flapV   = FLAP_V  * (G.runAssist ? ASSIST.flap : 1);
+    G.gap     = GAP     + (G.runAssist ? ASSIST.gap : 0);
+    G.speed   = SPEED   * (G.runAssist ? ASSIST.speed : 1);
     trail.length = 0;
     pipes.length = 0;
     powers.length = 0;
@@ -1161,8 +1217,9 @@
   }
 
   function flap() {
-    bird.vy = FLAP_V;
+    bird.vy = G.flapV;
     bird.wing = 9;
+    buzz(12);
     audio.flap();
   }
 
@@ -1173,6 +1230,7 @@
     G.shake = reduceMotion ? 0 : 9;
     audio.hit();
     audio.die();
+    buzz([40, 30, 60]);
     if (fromPipe) puff(bird.x + 6, bird.y, '#ffffff', 8);
     syncStage();
   }
@@ -1180,7 +1238,10 @@
   function land() {
     G.state = OVER;
     G.overAt = G.ticks;
-    if (G.score > G.best) { G.best = G.score; G.newBest = true; buildSheet(); }
+    // An assist run is played on gentler physics, so it is not the same
+    // record. It still earns coins; it just does not set a best score,
+    // and the panel says so rather than withholding it silently.
+    if (!G.runAssist && G.score > G.best) { G.best = G.score; G.newBest = true; buildSheet(); }
     recordRun();
     syncStage();
   }
@@ -1191,7 +1252,7 @@
     const st = profile.stats;
     st.games++;
     st.longest = Math.max(st.longest, G.runTicks);
-    if (G.score > profile.best) profile.best = G.score;
+    if (!G.runAssist && G.score > profile.best) profile.best = G.score;
     const m = medalFor(G.score);
     if (m) {
       st[m.name.toLowerCase()]++;
@@ -1212,10 +1273,11 @@
   function hitsPipe(p) {
     const bx = bird.x - HIT_W / 2, by = bird.y - HIT_H / 2;
     if (bx + HIT_W < p.x || bx > p.x + PIPE_W) return false;
-    return by < p.gap - GAP / 2 || by + HIT_H > p.gap + GAP / 2;
+    return by < p.gap - G.gap / 2 || by + HIT_H > p.gap + G.gap / 2;
   }
 
   function tick() {
+    if (G.paused) return;      // the loop keeps rendering; the world stops
     G.ticks++;
     const ts = G.slow > 0 && G.state === PLAYING ? SLOWMO : 1;
 
@@ -1227,17 +1289,17 @@
       // Idle bob on the title screen.
       bird.y = 236 + Math.sin(G.ticks / 15) * 6;
       bird.rot = Math.sin(G.ticks / 15) * 0.07;
-      G.scroll += SPEED;
-      G.cycle += SPEED;
+      G.scroll += G.speed;
+      G.cycle += G.speed;
     } else if (G.state === PLAYING) {
       G.runTicks++;
-      bird.vy = clamp(bird.vy + GRAVITY * ts, -20, MAX_VY);
+      bird.vy = clamp(bird.vy + G.gravity * ts, -20, MAX_VY);
       bird.y += bird.vy * ts;
-      G.scroll += SPEED * ts;
-      G.cycle += SPEED * ts;
+      G.scroll += G.speed * ts;
+      G.cycle += G.speed * ts;
 
-      for (const p of pipes) { p.px = p.x; p.x -= SPEED * ts; }
-      for (const q of powers) { q.px = q.x; q.x -= SPEED * ts; q.bob += 0.07; }
+      for (const p of pipes) { p.px = p.x; p.x -= G.speed * ts; }
+      for (const q of powers) { q.px = q.x; q.x -= G.speed * ts; q.bob += 0.07; }
 
       // Recycle: drop what has left the screen, keep three pairs ahead.
       while (pipes.length && pipes[0].x + PIPE_W < -10) pipes.shift();
@@ -1298,7 +1360,7 @@
       const target = bird.vy < 0 ? -0.42 : clamp(bird.vy * 0.13, -0.42, 1.5);
       bird.rot += (target - bird.rot) * 0.18;
     } else if (G.state === DYING) {
-      bird.vy = clamp(bird.vy + GRAVITY * 1.1, -20, MAX_VY);
+      bird.vy = clamp(bird.vy + G.gravity * 1.1, -20, MAX_VY);
       bird.y += bird.vy;
       bird.rot = Math.min(bird.rot + 0.11, 1.62);
       if (bird.y + HIT_H / 2 >= GY) { bird.y = GY - HIT_H / 2; land(); }
@@ -1314,7 +1376,7 @@
         trail.push({
           x: bird.x - 10 + (Math.random() * 4 - 2),
           y: bird.y + (Math.random() * 8 - 4),
-          vx: G.trail.drift - SPEED * 0.35,
+          vx: G.trail.drift - G.speed * 0.35,
           vy: G.trail.rise + (Math.random() * 0.3 - 0.15),
           life: G.trail.life,
           max: G.trail.life,
@@ -1491,7 +1553,7 @@
   }
 
   function drawPipe(p, x) {
-    const top = p.gap - GAP / 2, bot = p.gap + GAP / 2;
+    const top = p.gap - G.gap / 2, bot = p.gap + G.gap / 2;
     const pal = (G.world && G.world.pipes) || PIPE_DEFAULT;
     const body = pal.body, light = pal.light, dark = pal.dark, edge = pal.edge;
 
@@ -1632,9 +1694,15 @@
     textOut(ctx, 'BEST', rx, pyy + 62, 7, '#8d7c4c', '#e7dcb4', 'right');
     textOut(ctx, String(G.best), rx, pyy + 80, 15, '#ffffff', '#20160a', 'right');
 
+    if (G.runAssist) {
+      textOut(ctx, 'ASSIST MODE', W / 2, pyy + ph + 18, 7, '#9fd8ff', '#20160a');
+      textOut(ctx, 'NO RECORD SET', W / 2, pyy + ph + 32, 6, '#8ea9bd', '#20160a');
+    }
+
+    // One line, inside the panel. Two lines starting at +88 ran past the
+    // panel's bottom edge at +100 and printed over its border.
     if (G.runCoins > 0) {
-      textOut(ctx, '+' + G.runCoins, pxx + 42, pyy + 88, 8, '#f5c33b', '#20160a');
-      textOut(ctx, 'COINS', pxx + 42, pyy + 88 + 13, 6, '#8d7c4c', '#e7dcb4');
+      textOut(ctx, '+' + G.runCoins + ' COINS', pxx + 42, pyy + 88, 6, '#c8901c', '#e7dcb4');
     }
 
     if (G.newBest) {
@@ -1734,6 +1802,7 @@
   const sheet = document.getElementById('sheet');
   const playersSheet = document.getElementById('players');
   const settingsSheet = document.getElementById('settings');
+  const pausedSheet = document.getElementById('paused');
   const skinList = document.getElementById('skin-list');
   const btnSkins = document.getElementById('btn-skins');
   const btnSound = document.getElementById('btn-sound');
@@ -1743,7 +1812,7 @@
   }
 
   function press() {
-    if (!sheet.hidden || !playersSheet.hidden || !settingsSheet.hidden) return;
+    if (!sheet.hidden || !playersSheet.hidden || !settingsSheet.hidden || !pausedSheet.hidden) return;
     audio.ensure();
     askPersist();
     if (G.state === READY) { startPlay(); flap(); }
@@ -1763,6 +1832,7 @@
       if (!sheet.hidden) closeSheet();
       else if (!playersSheet.hidden) closePlayers();
       else if (!settingsSheet.hidden) closeSettings();
+      else if (!pausedSheet.hidden) resumeRun();
     }
   });
   addEventListener('blur', () => { if (G.state === PLAYING) { /* keep running; dt is clamped */ } });
@@ -2022,6 +2092,31 @@
         setMuted(!audio.muted);
         buildSettings();
       }));
+
+    settingsList.appendChild(toggleRow(
+      'Haptics',
+      profile && profile.haptics ? 'Buzz on flap and crash' : 'Off — iPhones ignore this either way',
+      !!(profile && profile.haptics),
+      () => {
+        if (!profile) return;
+        profile.haptics = !profile.haptics;
+        saveProfile();
+        buzz(20);
+        buildSettings();
+      }));
+
+    settingsList.appendChild(toggleRow(
+      'Assist mode',
+      profile && profile.assist
+        ? 'Gentler flight — runs pay coins but set no record'
+        : 'Off — the original feel',
+      !!(profile && profile.assist),
+      () => {
+        if (!profile) return;
+        profile.assist = !profile.assist;
+        saveProfile();
+        buildSettings();
+      }));
   }
 
   function toggleRow(name, detail, on, onToggle) {
@@ -2050,6 +2145,37 @@
     if (profile) { profile.bg = v; saveProfile(); }
     buildSettings();
   }
+
+  /* ── pause ────────────────────────────────────────────────────── */
+
+  const btnPause = document.getElementById('btn-pause');
+
+  function pauseRun() {
+    if (G.state !== PLAYING || G.paused) return;
+    G.paused = true;
+    pausedSheet.hidden = false;
+    document.getElementById('paused-resume').focus();
+  }
+
+  function resumeRun() {
+    G.paused = false;
+    pausedSheet.hidden = true;
+  }
+
+  function endRun() {
+    G.paused = false;
+    pausedSheet.hidden = true;
+    resetWorld();
+  }
+
+  btnPause.addEventListener('click', pauseRun);
+  document.getElementById('paused-resume').addEventListener('click', resumeRun);
+  document.getElementById('paused-quit').addEventListener('click', endRun);
+
+  // Leaving the tab mid-run should not cost the run.
+  addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') pauseRun();
+  });
 
   function openSettings() { buildSettings(); settingsSheet.hidden = false; document.getElementById('settings-close').focus(); }
   function closeSettings() { settingsSheet.hidden = true; btnGear.focus(); }
@@ -2417,6 +2543,9 @@
       },
       setTab: k => { shopKind = k; buildSheet(); },
       setBackground, phaseList, phaseNow,
+      pauseRun, resumeRun, endRun,
+      physics: () => ({ gravity: G.gravity, flapV: G.flapV, gap: G.gap, speed: G.speed, assist: G.runAssist }),
+      paused: () => G.paused,
       openSettings, closeSettings,
       seed: () => G.seed,
       trailParticles: () => trail,

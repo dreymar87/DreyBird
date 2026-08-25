@@ -54,7 +54,7 @@ const RUN = `(score) => {
   const d = window.__dreybird;
   let startPowers = 0, startCoins = 0;
   const begin = () => {
-    d.resetWorld(); d.startPlay();
+    d.resetWorld(); d.startPlay(); if (d.resumeRun) d.resumeRun();
     startPowers = d.active().stats.powers;
     startCoins = d.coins();
   };
@@ -238,7 +238,7 @@ const RUN = `(score) => {
   const shot = async () => (await page.locator('#game').screenshot()).toString('base64');
   await page.evaluate(() => {
     const d = __dreybird;
-    d.resetWorld(); d.startPlay();
+    d.resetWorld(); d.startPlay(); if (d.resumeRun) d.resumeRun();
     for (let i = 0; i < 30; i++) { if (d.bird.y > 230) d.flap(); d.tick(); }
   });
   await page.waitForTimeout(120);
@@ -250,7 +250,7 @@ const RUN = `(score) => {
     d.buy(d.HATS.find(h => h.id === 'crown'));
     d.buy(d.WORLDS.find(w => w.id === 'neon'));
     d.equip('hat', 'crown'); d.equip('world', 'neon');
-    d.resetWorld(); d.startPlay();
+    d.resetWorld(); d.startPlay(); if (d.resumeRun) d.resumeRun();
     for (let i = 0; i < 30; i++) { if (d.bird.y > 230) d.flap(); d.tick(); }
   });
   await page.waitForTimeout(120);
@@ -262,7 +262,7 @@ const RUN = `(score) => {
     const d = __dreybird;
     d.buy(d.TRAILS.find(t => t.id === 'rainbow'));
     d.equip('trail', 'rainbow');
-    d.resetWorld(); d.startPlay();
+    d.resetWorld(); d.startPlay(); if (d.resumeRun) d.resumeRun();
     for (let i = 0; i < 60; i++) { if (d.bird.y > 230) d.flap(); d.tick(); }
     return d.trailParticles().length;
   });
@@ -302,7 +302,7 @@ const RUN = `(score) => {
   await page.evaluate(() => {
     document.getElementById('sheet').hidden = true;
     const d = __dreybird;
-    d.resetWorld(); d.startPlay(); d.G.score = 18;
+    d.resetWorld(); d.startPlay(); if (d.resumeRun) d.resumeRun(); d.G.score = 18;
     for (let i = 0; i < 90; i++) { if (d.bird.y > 235) d.flap(); d.tick(); }
   });
   await page.waitForTimeout(150);

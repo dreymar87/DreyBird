@@ -59,7 +59,7 @@ check('tap gives upward velocity', vyAfterFlap < 0, 'vy=' + vyAfterFlap.toFixed(
 // --- refresh-rate independence: same sim after equal *time* ----------
 const sample = async hz => page.evaluate(hz => {
   const d = __dreybird;
-  d.resetWorld(); d.startPlay(); d.flap();
+  d.resetWorld(); d.startPlay(); if (d.resumeRun) d.resumeRun(); d.flap();
   const step = 1000 / hz;
   let t = performance.now() + 5000;
   d.detach(); d.frame(t);
@@ -80,7 +80,7 @@ const runs = await page.evaluate(() => {
   const out = [];
   const SEEDS = [101, 202, 303, 404, 505];
   for (let r = 0; r < 5; r++) {
-    d.resetWorld(); d.startPlay(SEEDS[r]);
+    d.resetWorld(); d.startPlay(SEEDS[r]); if (d.resumeRun) d.resumeRun();
     const seen = [];
     for (let i = 0; i < 3000 && d.G.state === 1; i++) {
       // bang-bang autopilot: hold just under the gap centre of the pipe ahead
@@ -94,7 +94,7 @@ const runs = await page.evaluate(() => {
   // Replay the same seeds: every score must come back identical.
   const replay = [];
   for (let r = 0; r < 5; r++) {
-    d.resetWorld(); d.startPlay(SEEDS[r]);
+    d.resetWorld(); d.startPlay(SEEDS[r]); if (d.resumeRun) d.resumeRun();
     for (let i = 0; i < 3000 && d.G.state === 1; i++) {
       const p = d.pipes.find(p => p.x + d.PIPE_W > d.bird.x) || d.pipes[0];
       if (d.bird.y > p.gap + 18 && d.bird.vy > -1) d.flap();
@@ -115,7 +115,7 @@ check('score only ever increases by 1', runs.out.every(r => r.ok));
 // --- collision ends the run -------------------------------------------
 const crash = await page.evaluate(() => {
   const d = __dreybird;
-  d.resetWorld(); d.startPlay();
+  d.resetWorld(); d.startPlay(); if (d.resumeRun) d.resumeRun();
   for (let i = 0; i < 600 && d.G.state === 1; i++) d.tick();   // no flapping: hit the ground
   const dying = d.G.state;
   for (let i = 0; i < 600 && d.G.state !== 3; i++) d.tick();
@@ -126,7 +126,7 @@ check('falling ends the run and reaches GAME OVER', crash.dying === 2 && crash.o
 // --- shield absorbs exactly one hit -----------------------------------
 const shield = await page.evaluate(() => {
   const d = __dreybird;
-  d.resetWorld(); d.startPlay();
+  d.resetWorld(); d.startPlay(); if (d.resumeRun) d.resumeRun();
   d.G.shield = true;
   const p = d.pipes[0];
   p.x = d.bird.x - 10;              // put the bird inside a pipe column
@@ -178,7 +178,7 @@ check('shop cards are styled, not default browser buttons',
 // --- screenshots of the real states -----------------------------------
 await page.evaluate(() => {
   const d = __dreybird;
-  d.resetWorld(); d.startPlay();
+  d.resetWorld(); d.startPlay(); if (d.resumeRun) d.resumeRun();
   d.G.score = 14; d.G.slow = d.PU_TICKS * 0.7; d.G.shield = true;
   for (let i = 0; i < 40; i++) { if (d.bird.y > 240) d.flap(); d.tick(); }
 });
@@ -202,7 +202,7 @@ await page.click('#sheet-close');
 // night phase screenshot
 await page.evaluate(() => {
   const d = __dreybird;
-  d.resetWorld(); d.startPlay();
+  d.resetWorld(); d.startPlay(); if (d.resumeRun) d.resumeRun();
   d.G.cycle = 1750 * 2.9; d.G.score = 31;
   for (let i = 0; i < 30; i++) { if (d.bird.y > 230) d.flap(); d.tick(); }
 });
