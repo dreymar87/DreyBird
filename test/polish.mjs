@@ -146,19 +146,50 @@ async function fresh(opts) {
     const cv = document.getElementById('game');
     const g = cv.getContext('2d');
     const scale = cv.width / d.W;
-    const row = y => {
-      d.frame(performance.now() + 1);
-      return Array.from(g.getImageData(0, Math.round(y * scale), cv.width, 1).data).join(',');
+    const px = (x, y) => g.getImageData(Math.round(x * scale), Math.round(y * scale), 1, 1).data;
+    const rowAt = y => g.getImageData(0, Math.round(y * scale), cv.width, 1).data;
+    // READY scrolls the world with no pipes in it, so anything that changes
+    // in these rows changed because a background layer moved.
+    d.resetWorld();
+    // Pin the phase. Left cycling, the palette drifts as the world ticks and
+    // *every* row differs on colour alone — which is how the first version of
+    // this check passed while a layer sat completely still.
+    d.G.bg = 0;
+    d.frame(performance.now() + 1);
+
+    // Each probe has to sit where its layer actually varies. An earlier
+    // version read y=404, inside the flat grass band — one colour edge to
+    // edge, which can never differ however fast the ground scrolls.
+    const FAR = 340;      // ridge silhouette and skyline, 0.11x and 0.25x
+    const GROUND = 417;   // dirt notches, below GY so nothing else draws there
+    const TUFT = 394;     // foreground tufts at 1.15x
+
+    // The tufts are drawn over the skyline, so a raw row there moves even
+    // when the tufts are frozen. Mask to the grass colour — read off the
+    // solid band below the ground line, so it tracks whatever world is on —
+    // and only tuft pixels remain.
+    const tuftMask = () => {
+      const grass = px(4, d.GY + 4);
+      const r = rowAt(TUFT);
+      let m = '';
+      for (let i = 0; i < r.length; i += 4) {
+        m += (r[i] === grass[0] && r[i + 1] === grass[1] && r[i + 2] === grass[2]) ? '1' : '0';
+      }
+      return m;
     };
-    d.resetWorld(); d.startPlay(7); d.resumeRun();
-    d.active().bg = 0;                          // hold the sky so only motion differs
-    const far = row(330), near = row(404);
-    for (let i = 0; i < 40; i++) { d.bird.y = 200; d.tick(); }
-    const far2 = row(330), near2 = row(404);
-    return { farMoved: far !== far2, nearMoved: near !== near2 };
+    const raw = y => Array.from(rowAt(y)).join(',');
+
+    const far1 = raw(FAR), ground1 = raw(GROUND), tuft1 = tuftMask();
+    for (let i = 0; i < 40; i++) d.tick();
+    d.frame(performance.now() + 2);
+    return {
+      farMoved: far1 !== raw(FAR),
+      groundMoved: ground1 !== raw(GROUND),
+      tuftsMoved: tuft1 !== tuftMask(),
+    };
   });
-  check('both the far ridge and the near ground move as you fly',
-    layers.farMoved && layers.nearMoved, JSON.stringify(layers));
+  check('the ridge, the ground and the tufts each move as you fly',
+    layers.farMoved && layers.groundMoved && layers.tuftsMoved, JSON.stringify(layers));
   await context.close();
 }
 
