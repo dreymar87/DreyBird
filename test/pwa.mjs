@@ -5,6 +5,7 @@
 import { chromium } from 'playwright';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
+import { mkdirSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
 
 const HERE = new URL('.', import.meta.url).pathname;
@@ -122,6 +123,7 @@ const offline = await page.evaluate(async () => {
 });
 check('offline: the game boots, starts on a tap and scores',
   offline.booted && offline.started && offline.score > 0, JSON.stringify(offline));
+mkdirSync(HERE + 'shots', { recursive: true });
 await page.screenshot({ path: HERE + 'shots/shot-offline.png' }).catch(() => {});
 await context.setOffline(false);
 
