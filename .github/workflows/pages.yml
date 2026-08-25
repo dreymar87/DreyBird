@@ -24,12 +24,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # enablement: true turns Pages on via the API if it isn't already.
-      # If the token isn't allowed to, set Settings → Pages → Source to
-      # "GitHub Actions" once, by hand, and re-run this workflow.
+      # No enablement: true here. Creating a Pages site for the first time
+      # needs repo-admin rights, which the Actions GITHUB_TOKEN does not
+      # have — asking for it only buries the real cause under a second,
+      # unfixable "Create Pages site failed" error. The site is created once
+      # by hand (Settings → Pages → Source → GitHub Actions); after that
+      # this step just reads the existing config.
       - uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       # Publish only what the game needs — not the test harness.
       - name: Assemble the site
