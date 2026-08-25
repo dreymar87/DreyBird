@@ -118,6 +118,7 @@
   .iconbtn svg { width: 22px; height: 22px; display: block; }
   #btn-player { left: 8px; }
   #btn-skins { left: 60px; }
+  #btn-gear { left: 112px; }
   #btn-sound { right: 8px; }
   #stage[data-playing="1"] .iconbtn { opacity: .18; pointer-events: none; }
   .iconbtn .off-slash { display: none; }
@@ -277,6 +278,78 @@
   .card .price { font-size: 11px; color: var(--accent); }
   .card .price.short { color: rgba(255, 255, 255, .45); }
 
+  .swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+  .swatch {
+    flex: 1 1 60px;
+    min-width: 60px;
+    padding: 0 0 5px;
+    border: 1px solid rgba(255, 255, 255, .18);
+    border-radius: 3px;
+    background: rgba(255, 255, 255, .05);
+    color: rgba(255, 255, 255, .72);
+    font-family: inherit;
+    font-size: 10px;
+    cursor: pointer;
+    overflow: hidden;
+  }
+  .swatch canvas { width: 100%; height: 26px; display: block; image-rendering: pixelated; margin-bottom: 5px; }
+  .swatch[aria-pressed="true"] { border-color: var(--accent); background: rgba(245, 179, 45, .2); color: #fff; }
+  .swatch:hover { background: rgba(255, 255, 255, .12); }
+  .swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .setting {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 10px;
+    border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 3px;
+    background: rgba(255, 255, 255, .07);
+    color: #fff;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .setting:hover { background: rgba(255, 255, 255, .14); }
+  .setting:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .setting .meta { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+  .setting .name { font-family: "Press Start 2P", ui-monospace, monospace; font-size: 9px; letter-spacing: .03em; }
+  .setting .req { font-size: 11px; color: rgba(255, 255, 255, .6); }
+  .switch {
+    flex: none;
+    width: 38px; height: 22px;
+    border-radius: 11px;
+    background: rgba(255, 255, 255, .16);
+    position: relative;
+    transition: background .18s ease;
+  }
+  .switch::after {
+    content: '';
+    position: absolute;
+    top: 3px; left: 3px;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform .18s ease;
+  }
+  .setting[aria-pressed="true"] .switch { background: var(--accent); }
+  .setting[aria-pressed="true"] .switch::after { transform: translateX(16px); }
+
+  /* The shared .sheet-list centres itself, which is right for a list of
+     cards but leaves a void in a settings panel. Top-align here and let
+     the Back button take the slack. */
+  #settings-list { margin-block: 0; }
+  #settings-close { margin-top: auto; }
+
+  .sheet-section {
+    font-family: "Press Start 2P", ui-monospace, monospace;
+    font-size: 8px;
+    letter-spacing: .06em;
+    color: rgba(255, 255, 255, .45);
+    margin: 4px 0 -4px;
+  }
+
   .sheet-actions { display: flex; gap: 6px; }
   .sheet-btn {
     font-family: "Press Start 2P", ui-monospace, monospace;
@@ -363,6 +436,13 @@
     </svg>
   </button>
 
+  <button id="btn-gear" class="iconbtn" type="button" aria-label="Settings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3.2"></circle>
+      <path d="M12 2.6v2.2M12 19.2v2.2M21.4 12h-2.2M4.8 12H2.6M18.6 5.4l-1.6 1.6M7 17l-1.6 1.6M18.6 18.6 17 17M7 7 5.4 5.4"></path>
+    </svg>
+  </button>
+
   <button id="btn-sound" class="iconbtn" type="button" aria-label="Mute sound" aria-pressed="false">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M11 5 6.5 9H3v6h3.5L11 19V5Z" fill="currentColor"></path>
@@ -388,6 +468,16 @@
     </div>
     <ul id="skin-list" class="sheet-list"></ul>
     <button id="sheet-close" class="sheet-btn" type="button">Back</button>
+  </div>
+
+  <div id="settings" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Settings">
+    <h2>Settings</h2>
+    <p class="sheet-section">BACKGROUND</p>
+    <p class="hint" id="bg-note">Drift through the day, or hold one sky.</p>
+    <div id="bg-swatches" class="swatches"></div>
+    <p class="sheet-section">SOUND</p>
+    <div id="settings-list" class="sheet-list"></div>
+    <button id="settings-close" class="sheet-btn" type="button">Back</button>
   </div>
 
   <div id="players" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Players">
@@ -444,6 +534,26 @@
   const SHIELD_IV = 46;        // invulnerable ticks after a shield pops
 
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ── seeded randomness ────────────────────────────────────────────
+     Everything that shapes a run — pipe gaps, power-up spawns — draws
+     from a seeded generator, so a seed reproduces a run exactly. That is
+     what makes a shared daily challenge and a ghost replay possible, and
+     it lets the tests assert exact scores instead of statistics.
+
+     Cosmetic jitter (particles, screen shake) deliberately stays on
+     Math.random: it cannot affect fairness, and seeding it would only
+     couple the visuals to the simulation. */
+  function mulberry32(seed) {
+    let a = seed >>> 0;
+    return function () {
+      a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  const randomSeed = () => (Math.random() * 0xFFFFFFFF) >>> 0;
 
   /* ── persistence ──────────────────────────────────────────────────
      Two device-level preferences stay in localStorage (mute, legacy keys).
@@ -600,6 +710,7 @@
       hat: 'none',
       trail: 'none',
       world: 'meadow',
+      bg: 'cycle',           // 'cycle', or the index of a phase to hold
       coins: 0,
       owned: [],
       granted: false,        // back-pay for play from before the shop existed
@@ -622,6 +733,7 @@
       hat: typeof p.hat === 'string' ? p.hat : 'none',
       trail: typeof p.trail === 'string' ? p.trail : 'none',
       world: typeof p.world === 'string' ? p.world : 'meadow',
+      bg: (typeof p.bg === 'number' && p.bg >= 0) || p.bg === 'cycle' ? p.bg : 'cycle',
       coins: num(p.coins, 0),
       owned: Array.isArray(p.owned) ? p.owned.filter(x => typeof x === 'string') : [],
       granted: p.granted === true,
@@ -696,6 +808,9 @@
     G.hat = byId(HATS, profile.hat);
     G.trail = byId(TRAILS, profile.trail);
     G.world = byId(WORLDS, profile.world);
+    G.bg = profile.bg;
+    // A world holding a phase that no longer exists falls back to cycling.
+    if (typeof G.bg === 'number' && G.bg >= phaseList().length) G.bg = 'cycle';
   }
 
   /* Durable storage is not the default: browsers evict under pressure and
@@ -795,20 +910,49 @@
      Repaints the pipes, and optionally replaces the day/night cycle with
      its own palette list. `phases: null` keeps the default cycle. */
   const PIPE_DEFAULT = { body: '#63c53c', light: '#9de86f', dark: '#2f7a24', edge: '#1d4a18' };
+
+  /* Every world carries its own list of times of day, so a bought world is
+     at least as alive as the free one. `phases: null` means "use the
+     default day → sunset → night → dawn cycle". */
   const WORLDS = [
-    { id: 'meadow', name: 'Meadow', cost: 0, pipes: PIPE_DEFAULT, phases: null },
+    { id: 'meadow', name: 'Meadow', cost: 0, pipes: PIPE_DEFAULT, phases: null,
+      phaseNames: ['Day', 'Sunset', 'Night', 'Dawn'] },
+
     { id: 'sunset', name: 'Endless Sunset', cost: 180,
       pipes: { body: '#e07a3c', light: '#ffb072', dark: '#8f4318', edge: '#5c2a0e' },
-      phases: [{ sky: ['#e8724a', '#ffcf8f'], cloud: '#ffe3cd', city: '#a25f63', dirt: '#d5b880', grass: '#9c8639', star: 0.1, sun: '#ffe9a8' }] },
+      phaseNames: ['Golden', 'Amber', 'Afterglow'],
+      phases: [
+        { sky: ['#f2a05a', '#ffdfae'], cloud: '#fff0dc', city: '#b3706a', dirt: '#dcc38c', grass: '#a89042', star: 0, sun: '#fff3c8' },
+        { sky: ['#e8724a', '#ffcf8f'], cloud: '#ffe3cd', city: '#a25f63', dirt: '#d5b880', grass: '#9c8639', star: 0.1, sun: '#ffe9a8' },
+        { sky: ['#a8446a', '#ff9a72'], cloud: '#ffcbb4', city: '#6e3a55', dirt: '#b99a70', grass: '#7d6a33', star: 0.35, sun: '#ffc98a' }
+      ] },
+
     { id: 'mono', name: 'Monochrome', cost: 220,
       pipes: { body: '#8b8f9c', light: '#c9ccd6', dark: '#4a4d57', edge: '#26282f' },
-      phases: [{ sky: ['#6f7481', '#c2c6d0'], cloud: '#e8eaef', city: '#575b66', dirt: '#b9bcc4', grass: '#7d8189', star: 0, sun: '#f2f3f6' }] },
+      phaseNames: ['Overcast', 'Bright', 'Dusk'],
+      phases: [
+        { sky: ['#6f7481', '#c2c6d0'], cloud: '#e8eaef', city: '#575b66', dirt: '#b9bcc4', grass: '#7d8189', star: 0, sun: '#f2f3f6' },
+        { sky: ['#9ba0ad', '#eceef2'], cloud: '#ffffff', city: '#7b8090', dirt: '#d6d8de', grass: '#9ba0a8', star: 0, sun: '#ffffff' },
+        { sky: ['#2f323b', '#6d7280'], cloud: '#878c99', city: '#1e2128', dirt: '#6f727a', grass: '#4a4d57', star: 0.7, sun: '#c9ccd6' }
+      ] },
+
     { id: 'neon', name: 'Neon Grid', cost: 260,
       pipes: { body: '#12345c', light: '#3ef2ff', dark: '#0a1c33', edge: '#04101f' },
-      phases: [{ sky: ['#12002e', '#3d0a5c'], cloud: '#5a1a8a', city: '#1d0640', dirt: '#2a1148', grass: '#ff2fb9', star: 0.9, sun: '#ff2fb9' }] },
+      phaseNames: ['Dusk', 'Midnight', 'Signal'],
+      phases: [
+        { sky: ['#3a0a5c', '#7a1f8a'], cloud: '#8a3aa8', city: '#2a0740', dirt: '#3a1a52', grass: '#ff2fb9', star: 0.4, sun: '#ff7ad9' },
+        { sky: ['#12002e', '#3d0a5c'], cloud: '#5a1a8a', city: '#1d0640', dirt: '#2a1148', grass: '#ff2fb9', star: 0.9, sun: '#ff2fb9' },
+        { sky: ['#020a1e', '#0d2f5c'], cloud: '#12406e', city: '#04101f', dirt: '#0d2340', grass: '#3ef2ff', star: 1, sun: '#3ef2ff' }
+      ] },
+
     { id: 'sakura', name: 'Sakura', cost: 300,
       pipes: { body: '#d4738f', light: '#ffb3c7', dark: '#8f3f57', edge: '#5c2434' },
-      phases: [{ sky: ['#ffd3e2', '#fff0f4'], cloud: '#ffffff', city: '#d9a3b6', dirt: '#e8d5c4', grass: '#c98fa6', star: 0, sun: '#fff6da' }] }
+      phaseNames: ['Morning', 'Blossom', 'Evening'],
+      phases: [
+        { sky: ['#ffe6ef', '#fff8fa'], cloud: '#ffffff', city: '#e0b6c4', dirt: '#efe0d2', grass: '#d4a0b4', star: 0, sun: '#fffaf0' },
+        { sky: ['#ffd3e2', '#fff0f4'], cloud: '#ffffff', city: '#d9a3b6', dirt: '#e8d5c4', grass: '#c98fa6', star: 0, sun: '#fff6da' },
+        { sky: ['#8f6a9c', '#ffb8c8'], cloud: '#f0d2e0', city: '#5f4570', dirt: '#c4a894', grass: '#9c6f86', star: 0.5, sun: '#ffd9c0' }
+      ] }
   ];
 
   const byId = (list, id) => list.find(x => x.id === id) || list[0];
@@ -923,10 +1067,13 @@
     lastGap: 200,
     runTicks: 0,
     runCoins: 0,
+    seed: 0,
+    rng: mulberry32(1),
     skin: SKINS[0],
     hat: HATS[0],
     trail: TRAILS[0],
-    world: WORLDS[0]
+    world: WORLDS[0],
+    bg: 'cycle'
   };
 
   const stars = [];
@@ -970,29 +1117,40 @@
     const drift = 92;
     const lo = Math.max(GAP_MIN, G.lastGap - drift);
     const hi = Math.min(GAP_MAX, G.lastGap + drift);
-    const gap = Math.round(lo + Math.random() * (hi - lo));
+    const gap = Math.round(lo + G.rng() * (hi - lo));
     G.lastGap = gap;
     pipes.push({ x, px: x, gap, scored: false });
 
     // A power-up floats between this pipe and the next — never in the
     // opening stretch, and only now and then.
-    if (G.score >= 4 && Math.random() < 0.24) {
+    //
+    // The four draws happen unconditionally, before the score is consulted.
+    // Drawing them inside the `if` would advance the stream by a different
+    // amount depending on how well someone was playing, so two people on
+    // the same daily seed would stop seeing the same pipes the moment one
+    // of them reached 4 points. The stream must depend on the seed alone.
+    const rChance = G.rng(), rY = G.rng(), rKind = G.rng(), rBob = G.rng();
+    if (G.score >= 4 && rChance < 0.24) {
       powers.push({
         x: x + PIPE_W / 2 + SPACING / 2,
         px: x + PIPE_W / 2 + SPACING / 2,
-        y: clamp(gap + (Math.random() * 40 - 20), 70, GY - 70),
-        kind: Math.random() < 0.5 ? 'shield' : 'slow',
+        y: clamp(gap + (rY * 40 - 20), 70, GY - 70),
+        kind: rKind < 0.5 ? 'shield' : 'slow',
         got: false,
-        bob: Math.random() * Math.PI * 2
+        bob: rBob * Math.PI * 2
       });
     }
   }
 
-  function startPlay() {
+  function startPlay(seed) {
     G.state = PLAYING;
     G.ticks = 0;
     G.runTicks = 0;
     G.runCoins = 0;
+    // A seed fully determines the pipes and power-ups of a run.
+    G.seed = seed == null ? randomSeed() : (seed >>> 0);
+    G.rng = mulberry32(G.seed);
+    G.lastGap = 200;
     trail.length = 0;
     pipes.length = 0;
     powers.length = 0;
@@ -1201,14 +1359,19 @@
     c.fillText(str, x, y);
   }
 
+  // The times of day the equipped world offers.
+  function phaseList() {
+    return (G.world && G.world.phases) || PHASES;
+  }
+
   function phaseNow() {
-    // A world with its own palette list overrides the day/night cycle; a
-    // single-entry list simply holds that look forever.
-    const list = (G.world && G.world.phases) || PHASES;
+    const list = phaseList();
     const n = list.length;
-    const seg = ((G.cycle / PHASE_LEN) % n + n) % n;
+    // Holding a phase pins the sky; cycling drifts through the list.
+    const held = typeof G.bg === 'number' && G.bg >= 0 && G.bg < n;
+    const seg = held ? G.bg : ((G.cycle / PHASE_LEN) % n + n) % n;
     const i = Math.floor(seg);
-    const t = n === 1 ? 0 : smooth(clamp((seg - i - 0.55) / 0.45, 0, 1));
+    const t = (held || n === 1) ? 0 : smooth(clamp((seg - i - 0.55) / 0.45, 0, 1));
     const a = list[i], b = list[(i + 1) % n];
     return {
       sky0: mix(a.sky[0], b.sky[0], t), sky1: mix(a.sky[1], b.sky[1], t),
@@ -1570,6 +1733,7 @@
   const stage = document.getElementById('stage');
   const sheet = document.getElementById('sheet');
   const playersSheet = document.getElementById('players');
+  const settingsSheet = document.getElementById('settings');
   const skinList = document.getElementById('skin-list');
   const btnSkins = document.getElementById('btn-skins');
   const btnSound = document.getElementById('btn-sound');
@@ -1579,7 +1743,7 @@
   }
 
   function press() {
-    if (!sheet.hidden || !playersSheet.hidden) return;
+    if (!sheet.hidden || !playersSheet.hidden || !settingsSheet.hidden) return;
     audio.ensure();
     askPersist();
     if (G.state === READY) { startPlay(); flap(); }
@@ -1598,6 +1762,7 @@
     if (e.code === 'Escape') {
       if (!sheet.hidden) closeSheet();
       else if (!playersSheet.hidden) closePlayers();
+      else if (!settingsSheet.hidden) closeSettings();
     }
   });
   addEventListener('blur', () => { if (G.state === PLAYING) { /* keep running; dt is clamped */ } });
@@ -1692,6 +1857,7 @@
     applyProfile();
     buildSheet();
     buildPlayers();
+    buildSettings();     // a new world brings a different set of skies
   }
 
   function cardLabel(tab, item) {
@@ -1760,15 +1926,136 @@
   btnSkins.addEventListener('click', openSheet);
   document.getElementById('sheet-close').addEventListener('click', closeSheet);
 
-  btnSound.addEventListener('click', () => {
-    audio.muted = !audio.muted;
-    store.set('muted', audio.muted);
-    btnSound.setAttribute('aria-pressed', String(audio.muted));
-    btnSound.setAttribute('aria-label', audio.muted ? 'Unmute sound' : 'Mute sound');
-    if (!audio.muted) { audio.ensure(); audio.score(); }
-  });
+  function setMuted(v) {
+    audio.muted = v;
+    store.set('muted', v);
+    btnSound.setAttribute('aria-pressed', String(v));
+    btnSound.setAttribute('aria-label', v ? 'Unmute sound' : 'Mute sound');
+    if (!v) { audio.ensure(); audio.score(); }
+  }
+
+  btnSound.addEventListener('click', () => setMuted(!audio.muted));
   btnSound.setAttribute('aria-pressed', String(audio.muted));
   btnSound.setAttribute('aria-label', audio.muted ? 'Unmute sound' : 'Mute sound');
+
+  /* ══════════════════ settings ══════════════════ */
+
+  const btnGear = document.getElementById('btn-gear');
+  const bgSwatches = document.getElementById('bg-swatches');
+  const settingsList = document.getElementById('settings-list');
+
+  // A little strip of the sky itself — choosing a look by looking at it.
+  function skySwatch(phase) {
+    const c = document.createElement('canvas');
+    c.width = 120; c.height = 52;
+    const g = c.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    const sky = g.createLinearGradient(0, 0, 0, 52);
+    sky.addColorStop(0, phase.sky[0]);
+    sky.addColorStop(1, phase.sky[1]);
+    g.fillStyle = sky; g.fillRect(0, 0, 120, 52);
+    if (phase.star > 0.15) {
+      g.fillStyle = '#ffffff';
+      g.globalAlpha = phase.star;
+      for (let i = 0; i < 14; i++) g.fillRect((i * 37) % 118, (i * 23) % 30, 2, 2);
+      g.globalAlpha = 1;
+    }
+    g.fillStyle = phase.sun;
+    g.beginPath(); g.arc(96, 15, 8, 0, Math.PI * 2); g.fill();
+    g.fillStyle = phase.city; g.fillRect(8, 30, 16, 12); g.fillRect(30, 24, 12, 18); g.fillRect(48, 33, 18, 9);
+    g.fillStyle = phase.grass; g.fillRect(0, 42, 120, 4);
+    g.fillStyle = phase.dirt;  g.fillRect(0, 46, 120, 6);
+    return c;
+  }
+
+  function cyclingSwatch() {
+    const list = phaseList();
+    const c = document.createElement('canvas');
+    c.width = 120; c.height = 52;
+    const g = c.getContext('2d');
+    const band = 120 / list.length;
+    list.forEach((ph, i) => {
+      const sky = g.createLinearGradient(0, 0, 0, 52);
+      sky.addColorStop(0, ph.sky[0]);
+      sky.addColorStop(1, ph.sky[1]);
+      g.fillStyle = sky;
+      g.fillRect(i * band, 0, band + 1, 52);
+    });
+    g.fillStyle = 'rgba(0,0,0,.25)';
+    g.fillRect(0, 46, 120, 6);
+    return c;
+  }
+
+  function buildSettings() {
+    if (!bgSwatches) return;
+    const list = phaseList();
+    const names = (G.world && G.world.phaseNames) || [];
+    bgSwatches.textContent = '';
+
+    const make = (label, pressed, canvas, onPick) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'swatch';
+      b.setAttribute('aria-pressed', String(pressed));
+      b.appendChild(canvas);
+      b.appendChild(document.createTextNode(label));
+      b.addEventListener('click', onPick);
+      bgSwatches.appendChild(b);
+    };
+
+    make('Cycle', G.bg === 'cycle', cyclingSwatch(), () => setBackground('cycle'));
+    list.forEach((ph, i) => {
+      make(names[i] || ('Sky ' + (i + 1)), G.bg === i, skySwatch(ph), () => setBackground(i));
+    });
+
+    const note = document.getElementById('bg-note');
+    if (note) {
+      note.textContent = G.bg === 'cycle'
+        ? 'The sky drifts through ' + list.length + ' looks as you fly.'
+        : 'Held on one sky. It will not change during a run.';
+    }
+
+    // Sound lives here too, alongside its quick-access button.
+    settingsList.textContent = '';
+    settingsList.appendChild(toggleRow(
+      'Sound', audio.muted ? 'Off' : 'On', !audio.muted, () => {
+        setMuted(!audio.muted);
+        buildSettings();
+      }));
+  }
+
+  function toggleRow(name, detail, on, onToggle) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'setting';
+    b.setAttribute('aria-pressed', String(on));
+    const meta = document.createElement('span');
+    meta.className = 'meta';
+    const n = document.createElement('span');
+    n.className = 'name';
+    n.textContent = name;
+    const d = document.createElement('span');
+    d.className = 'req';
+    d.textContent = detail;
+    meta.append(n, d);
+    const sw = document.createElement('span');
+    sw.className = 'switch';
+    b.append(meta, sw);
+    b.addEventListener('click', onToggle);
+    return b;
+  }
+
+  function setBackground(v) {
+    G.bg = v;
+    if (profile) { profile.bg = v; saveProfile(); }
+    buildSettings();
+  }
+
+  function openSettings() { buildSettings(); settingsSheet.hidden = false; document.getElementById('settings-close').focus(); }
+  function closeSettings() { settingsSheet.hidden = true; btnGear.focus(); }
+
+  btnGear.addEventListener('click', openSettings);
+  document.getElementById('settings-close').addEventListener('click', closeSettings);
 
   /* ══════════════════ players ══════════════════ */
 
@@ -2094,6 +2381,7 @@
 
     buildSheet();
     buildPlayers();
+    buildSettings();
     updateStorageNote();
     resetWorld();
 
@@ -2128,6 +2416,9 @@
         if (tab && item) equip(tab, item);
       },
       setTab: k => { shopKind = k; buildSheet(); },
+      setBackground, phaseList, phaseNow,
+      openSettings, closeSettings,
+      seed: () => G.seed,
       trailParticles: () => trail,
       COIN_PIPE, COIN_POWER, MEDAL_BONUS,
       openPlayers, closePlayers,

@@ -72,12 +72,15 @@ check('physics identical at 60 vs 120 Hz',
   Math.abs(at60.y - at120.y) < 1.5 && Math.abs(at60.px - at120.px) < 1.5,
   `60Hz y=${at60.y.toFixed(1)} pipe=${at60.px.toFixed(1)} | 120Hz y=${at120.y.toFixed(1)} pipe=${at120.px.toFixed(1)}`);
 
-// --- scoring & playability: 5 autopilot runs -------------------------
+// --- scoring & playability: 5 autopilot runs on fixed seeds ----------
+// Seeded, so these are reproducible rather than statistical: the same seed
+// must always produce the same score.
 const runs = await page.evaluate(() => {
   const d = __dreybird;
   const out = [];
+  const SEEDS = [101, 202, 303, 404, 505];
   for (let r = 0; r < 5; r++) {
-    d.resetWorld(); d.startPlay();
+    d.resetWorld(); d.startPlay(SEEDS[r]);
     const seen = [];
     for (let i = 0; i < 3000 && d.G.state === 1; i++) {
       // bang-bang autopilot: hold just under the gap centre of the pipe ahead
@@ -86,14 +89,28 @@ const runs = await page.evaluate(() => {
       d.tick();
       seen.push(d.G.score);
     }
-    out.push({ score: d.G.score, ok: seen.every((v, i) => i === 0 || v - seen[i - 1] === 0 || v - seen[i - 1] === 1) });
+    out.push({ seed: SEEDS[r], score: d.G.score, ok: seen.every((v, i) => i === 0 || v - seen[i - 1] === 0 || v - seen[i - 1] === 1) });
   }
-  return out;
+  // Replay the same seeds: every score must come back identical.
+  const replay = [];
+  for (let r = 0; r < 5; r++) {
+    d.resetWorld(); d.startPlay(SEEDS[r]);
+    for (let i = 0; i < 3000 && d.G.state === 1; i++) {
+      const p = d.pipes.find(p => p.x + d.PIPE_W > d.bird.x) || d.pipes[0];
+      if (d.bird.y > p.gap + 18 && d.bird.vy > -1) d.flap();
+      d.tick();
+    }
+    replay.push(d.G.score);
+  }
+  return { out, replay };
 });
-const scores = runs.map(r => r.score).sort((a, b) => a - b);
-check('a naive autopilot clears pipes (median >= 5, best >= 10)',
-  scores[2] >= 5 && scores[4] >= 10, 'scores=' + JSON.stringify(scores));
-check('score only ever increases by 1', runs.every(r => r.ok));
+const scores = runs.out.map(r => r.score);
+check('replaying the same seeds reproduces the same scores exactly',
+  JSON.stringify(scores) === JSON.stringify(runs.replay),
+  'first=' + JSON.stringify(scores) + ' replay=' + JSON.stringify(runs.replay));
+check('a naive autopilot clears pipes on every seed',
+  scores.every(v => v >= 3) && Math.max(...scores) >= 10, 'scores=' + JSON.stringify(scores));
+check('score only ever increases by 1', runs.out.every(r => r.ok));
 
 // --- collision ends the run -------------------------------------------
 const crash = await page.evaluate(() => {

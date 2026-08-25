@@ -58,6 +58,14 @@ an earlier version, your existing best score is migrated into the first
 player rather than lost — and your pipes, power-ups and medals from before
 the shop existed are paid out in coins, once.
 
+## Background
+
+Every world drifts through its own times of day as you fly — Meadow through
+day, sunset, night and dawn; Neon Grid through dusk, midnight and signal. If
+you'd rather it held still, Settings (the gear, top-left) lets you pin any
+one of them. You pick by looking at a strip of the actual sky rather than
+choosing a name from a list, and the choice is saved per player.
+
 ## How to play
 
 | Input | Action |
@@ -93,7 +101,8 @@ finishing with a medal pays a bonus (bronze 5, silver 15, gold 30, platinum
   so the combinations multiply.
 - **5 flight trails** — sparks, bubbles, embers, frost, rainbow.
 - **4 world themes** beyond the default Meadow: Endless Sunset, Monochrome,
-  Neon Grid and Sakura, each repainting the pipes, sky and ground.
+  Neon Grid and Sakura, each repainting the pipes, sky and ground — and each
+  carrying its own three times of day.
 
 Coins are earned by playing. There is no real money in DreyBird, nothing to
 buy with a card, and no server to check anything — the wallet lives in your
@@ -116,6 +125,11 @@ Plain JavaScript on a `<canvas>`, roughly 900 lines:
   are canvas rectangles.
 - **No audio files.** Every sound is a WebAudio oscillator built on the fly,
   created on first tap so mobile browsers unlock it.
+- **Seeded runs.** Anything that shapes a run — pipe gaps, power-up spawns —
+  draws from a seeded generator, so a seed reproduces a run exactly. The
+  draws happen unconditionally, before the score is consulted, so the pipe
+  sequence depends on the seed alone and not on how well you are playing.
+  Cosmetic jitter deliberately stays unseeded: it can't affect fairness.
 - **Nothing external.** One optional Google Fonts request for the pixel
   typeface; the game plays fine without it.
 - **Offline by default.** `sw.js` is a hand-written service worker — no
@@ -139,6 +153,7 @@ node test/smoke.mjs      # 15 gameplay checks
 node test/pwa.mjs        # installability + a real offline run
 node test/profiles.mjs   # 20 storage, profile and import/export checks
 node test/cosmetics.mjs  # 15 economy, shop and rendering checks
+node test/determinism.mjs # 12 seeded-run and background checks
 node test/make-icons.mjs # regenerate the app icons
 ```
 
