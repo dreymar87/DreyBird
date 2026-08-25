@@ -66,6 +66,26 @@ you'd rather it held still, Settings (the gear, top-left) lets you pin any
 one of them. You pick by looking at a strip of the actual sky rather than
 choosing a name from a list, and the choice is saved per player.
 
+## The world
+
+Pipes come in **formations**, not just independent random gaps — ascents,
+descents, valleys, zigzags and narrow corridors, shuffled from the run's
+seed. They unlock as a run goes on, so the opening is always plain drift
+and the shapes arrive once you're warmed up.
+
+Three **hazards** turn up later in a run:
+
+- **Movers** — the pipe pair swings up and down, and the gap swings with it.
+- **Gusts** — an updraft or downdraft pushes you for a few seconds, always
+  announced first by chevrons down both edges pointing the way you'll be
+  pushed. A gust you can't see coming is unfair, not hard.
+- **Fog** — a band of haze hides part of the playfield. It changes what you
+  can see, never what the world does.
+
+Hazard frequency ramps on how far into the run you are, and **assist mode
+halves it**. Everything is drawn from the seed, so two people playing the
+same seed meet the same formations and the same weather.
+
 ## Comfort
 
 Settings (the gear, top-left) also holds:
@@ -170,6 +190,7 @@ node test/profiles.mjs   # 20 storage, profile and import/export checks
 node test/cosmetics.mjs  # 15 economy, shop and rendering checks
 node test/determinism.mjs # 12 seeded-run and background checks
 node test/comfort.mjs    # 16 haptics, pause and assist checks
+node test/dynamics.mjs   # 16 formation and hazard checks
 node test/make-icons.mjs # regenerate the app icons
 ```
 

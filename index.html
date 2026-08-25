@@ -986,6 +986,38 @@
       ] }
   ];
 
+  /* ── pipe formations ──────────────────────────────────────────────
+     Every gap used to be an independent random number inside a drift
+     bound: fair, and monotonous. A formation is a short authored sequence
+     of gap-centre offsets, so the world reads as designed rather than
+     generated. `steps` are offsets from the previous gap; `gapMul`
+     narrows the opening for that formation only.
+
+     Drift carries the heaviest weight, so a run still feels like
+     DreyBird rather than an obstacle course. */
+  const PATTERNS = [
+    { id: 'drift',    name: 'Drift',    weight: 34, from: 0,  steps: [null] },
+    { id: 'ascent',   name: 'Ascent',   weight: 12, from: 5,  steps: [-36, -36, -36] },
+    { id: 'descent',  name: 'Descent',  weight: 12, from: 5,  steps: [36, 36, 36] },
+    { id: 'valley',   name: 'Valley',   weight: 10, from: 12, steps: [44, 44, -44, -44] },
+    { id: 'zigzag',   name: 'Zigzag',   weight: 11, from: 14, steps: [-48, 48, -48, 48] },
+    { id: 'corridor', name: 'Corridor', weight: 9,  from: 20, steps: [0, 0, 0, 0], gapMul: 0.88 }
+  ];
+  const CALM_PIPES = 5;        // the opening is always plain drift
+  const GAP_FLOOR = 84;        // no formation may narrow past this
+
+  /* ── hazards ──────────────────────────────────────────────────────
+     Scheduled when a pipe spawns, which is off the right edge, so every
+     hazard arrives with natural warning. Intensity ramps on pipe index
+     rather than score: the Nth pipe is the Nth pipe for everyone on a
+     seed, whereas score depends on how well you are playing. */
+  const HAZARD_START = 8;      // pipes before anything can happen
+  const HAZARD_MAX = 0.34;
+  const MOVE_AMP = 26, MOVE_SPD = 0.028;
+  const GUST_LEAD = 46;        // ticks of telegraph before a gust bites
+  const GUST_DUR = 70, GUST_FORCE = 0.17;
+  const FOG_DUR = 150;
+
   const byId = (list, id) => list.find(x => x.id === id) || list[0];
 
   /* Ownership is keyed by kind:id, not id alone. Ids only have to be
@@ -1112,6 +1144,11 @@
     rng: mulberry32(1),
     paused: false,
     runAssist: false,
+    pipeIndex: 0,
+    pattern: null,
+    patStep: 0,
+    gust: null,
+    fog: null,
     // Effective physics for the run in progress; set by startPlay().
     gravity: GRAVITY,
     flapV: FLAP_V,
@@ -1156,18 +1193,83 @@
     G.slow = 0;
     G.invuln = 0;
     G.lastGap = 200;
+    G.pipeIndex = 0;
+    G.pattern = null;
+    G.patStep = 0;
+    G.gust = null;
+    G.fog = null;
     G.state = READY;
     syncStage();
   }
 
+  /* Weighted pick from the seeded stream, always exactly one draw.
+
+     Formations unlock as the run goes on, gated on pipe index — the same
+     deterministic clock the hazards use. Without it a zigzag could land
+     on pipe six, which is why one autopilot seed was scoring 1: the
+     opening was gentle and then everything arrived at once. */
+  function pickPattern(r, idx) {
+    const open = PATTERNS.filter(p => idx >= p.from);
+    let total = 0;
+    for (const p of open) total += p.weight;
+    let n = r * total;
+    for (const pat of open) {
+      n -= pat.weight;
+      if (n <= 0) return pat;
+    }
+    return PATTERNS[0];
+  }
+
   function spawnPipe(x) {
-    // Keep consecutive gaps within reach of each other so runs stay fair.
-    const drift = 92;
-    const lo = Math.max(GAP_MIN, G.lastGap - drift);
-    const hi = Math.min(GAP_MAX, G.lastGap + drift);
-    const gap = Math.round(lo + G.rng() * (hi - lo));
+    // Every draw for this pipe happens here, unconditionally and in a
+    // fixed order, before any state is consulted. Anything conditional
+    // would make the stream position depend on how the run is going.
+    const rPat = G.rng(), rDrift = G.rng();
+    const rHaz = G.rng(), rKindH = G.rng(), rAmp = G.rng(), rPhase = G.rng();
+
+    const idx = G.pipeIndex++;
+
+    // Start, or continue, a formation.
+    if (idx < CALM_PIPES || !G.pattern || G.patStep >= G.pattern.steps.length) {
+      G.pattern = idx < CALM_PIPES ? PATTERNS[0] : pickPattern(rPat, idx);
+      G.patStep = 0;
+    }
+    const step = G.pattern.steps[G.patStep++];
+
+    let gap;
+    if (step === null) {
+      // Drift: the original behaviour, a random gap within reach.
+      const drift = 92;
+      const lo = Math.max(GAP_MIN, G.lastGap - drift);
+      const hi = Math.min(GAP_MAX, G.lastGap + drift);
+      gap = Math.round(lo + rDrift * (hi - lo));
+    } else {
+      gap = Math.round(G.lastGap + step);
+    }
+
+    const h = Math.max(GAP_FLOOR, Math.round(G.gap * (G.pattern.gapMul || 1)));
+
+    // A mover swings, so its gap must stay reachable at both extremes.
+    const chance = clamp((idx - HAZARD_START) * 0.022, 0, HAZARD_MAX) * (G.runAssist ? 0.5 : 1);
+    const hazard = rHaz < chance ? (rKindH < 0.42 ? 'mover' : rKindH < 0.74 ? 'gust' : 'fog') : null;
+    const amp = hazard === 'mover' ? Math.round(10 + rAmp * MOVE_AMP) : 0;
+
+    // Clamp with the swing and the gap height both accounted for, so no
+    // formation or hazard can produce a pipe you cannot fly through.
+    const margin = h / 2 + amp + 10;
+    gap = clamp(gap, margin, GY - margin);
     G.lastGap = gap;
-    pipes.push({ x, px: x, gap, scored: false });
+
+    const pipe = { x, px: x, gap, base: gap, h, scored: false, amp, phase: rPhase * Math.PI * 2 };
+    pipes.push(pipe);
+
+    if (hazard === 'gust') {
+      // Scheduled ahead so the telegraph has time to appear.
+      G.gust = { at: G.ticks + GUST_LEAD, until: G.ticks + GUST_LEAD + GUST_DUR,
+                 force: (rPhase < 0.5 ? -1 : 1) * GUST_FORCE };
+    } else if (hazard === 'fog') {
+      G.fog = { until: G.ticks + FOG_DUR, y: clamp(gap - 40, 40, GY - 140) };
+    }
 
     // A power-up floats between this pipe and the next — never in the
     // opening stretch, and only now and then.
@@ -1178,6 +1280,7 @@
     // the same daily seed would stop seeing the same pipes the moment one
     // of them reached 4 points. The stream must depend on the seed alone.
     const rChance = G.rng(), rY = G.rng(), rKind = G.rng(), rBob = G.rng();
+    void rDrift;   // consumed above only on a drift step; the draw is unconditional
     if (G.score >= 4 && rChance < 0.24) {
       powers.push({
         x: x + PIPE_W / 2 + SPACING / 2,
@@ -1203,6 +1306,11 @@
     // Physics are fixed for the whole run, here, once.
     G.runAssist = !!(profile && profile.assist);
     G.paused = false;
+    G.pipeIndex = 0;
+    G.pattern = null;
+    G.patStep = 0;
+    G.gust = null;
+    G.fog = null;
     G.gravity = GRAVITY * (G.runAssist ? ASSIST.gravity : 1);
     G.flapV   = FLAP_V  * (G.runAssist ? ASSIST.flap : 1);
     G.gap     = GAP     + (G.runAssist ? ASSIST.gap : 0);
@@ -1273,7 +1381,8 @@
   function hitsPipe(p) {
     const bx = bird.x - HIT_W / 2, by = bird.y - HIT_H / 2;
     if (bx + HIT_W < p.x || bx > p.x + PIPE_W) return false;
-    return by < p.gap - G.gap / 2 || by + HIT_H > p.gap + G.gap / 2;
+    const h = p.h || G.gap;
+    return by < p.gap - h / 2 || by + HIT_H > p.gap + h / 2;
   }
 
   function tick() {
@@ -1298,7 +1407,21 @@
       G.scroll += G.speed * ts;
       G.cycle += G.speed * ts;
 
-      for (const p of pipes) { p.px = p.x; p.x -= G.speed * ts; }
+      for (const p of pipes) {
+        p.px = p.x;
+        p.x -= G.speed * ts;
+        // A mover swings its whole pair; collision follows it because the
+        // gap centre itself is what moves.
+        if (p.amp) p.gap = p.base + Math.sin(G.ticks * MOVE_SPD + p.phase) * p.amp;
+      }
+
+      // A gust pushes for a stretch, after its telegraph has had time to
+      // show. Scaled by ts so slow-mo slows the wind too.
+      if (G.gust) {
+        if (G.ticks >= G.gust.at && G.ticks < G.gust.until) bird.vy += G.gust.force * ts;
+        if (G.ticks >= G.gust.until) G.gust = null;
+      }
+      if (G.fog && G.ticks >= G.fog.until) G.fog = null;
       for (const q of powers) { q.px = q.x; q.x -= G.speed * ts; q.bob += 0.07; }
 
       // Recycle: drop what has left the screen, keep three pairs ahead.
@@ -1553,7 +1676,8 @@
   }
 
   function drawPipe(p, x) {
-    const top = p.gap - G.gap / 2, bot = p.gap + G.gap / 2;
+    const h = p.h || G.gap;
+    const top = p.gap - h / 2, bot = p.gap + h / 2;
     const pal = (G.world && G.world.pipes) || PIPE_DEFAULT;
     const body = pal.body, light = pal.light, dark = pal.dark, edge = pal.edge;
 
@@ -1615,6 +1739,63 @@
     for (let x = -24; x < W + 24; x += 24) ctx.fillRect(Math.round(x - o), GY + 16, 12, 4);
     ctx.fillStyle = 'rgba(255,255,255,.16)';
     for (let x = -24; x < W + 24; x += 24) ctx.fillRect(Math.round(x - o + 12), GY + 26, 8, 3);
+  }
+
+  /* A gust you cannot see coming is unfair rather than hard, so it is
+     announced before it bites and stays marked while it blows. */
+  function drawWeather() {
+    if (G.fog) {
+      const fade = clamp((G.fog.until - G.ticks) / 40, 0, 1);
+      const g = ctx.createLinearGradient(0, G.fog.y - 30, 0, G.fog.y + 110);
+      g.addColorStop(0, 'rgba(226,236,244,0)');
+      g.addColorStop(0.5, 'rgba(226,236,244,' + (0.82 * fade) + ')');
+      g.addColorStop(1, 'rgba(226,236,244,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, G.fog.y - 30, W, 140);
+    }
+
+    if (!G.gust) return;
+    const coming = G.ticks < G.gust.at;
+    const up = G.gust.force < 0;
+    const dir = up ? -1 : 1;
+
+    // Clear of the score and the corner buttons, and loud enough to read
+    // against a bright sky — a warning nobody notices is not a warning.
+    // Always legible while it matters; the pulse is in the size, not in
+    // whether it is drawn. A label that vanishes half the time is a poor
+    // warning.
+    const pulse = coming && Math.floor(G.ticks / 7) % 2 === 0;
+    textOut(ctx, up ? 'UPDRAFT' : 'DOWNDRAFT', W / 2, 104,
+      coming ? (pulse ? 9 : 8) : 7,
+      coming ? (up ? '#cdefff' : '#ffdcae') : 'rgba(255,255,255,.8)', '#20160a');
+
+    ctx.save();
+    ctx.globalAlpha = coming ? 0.55 + 0.35 * Math.sin(G.ticks / 4) : 0.75;
+    const scroll = coming ? 0 : (G.ticks * 1.8 * dir);
+    for (let i = 0; i < 6; i++) {
+      const yy = ((136 + i * 42 + scroll - 136) % 252 + 252) % 252 + 136;
+      for (const x of [16, W - 16]) {
+        // The apex points the way the wind will push you. Getting this
+        // backwards is worse than showing nothing at all.
+        ctx.fillStyle = '#20160a';
+        ctx.beginPath();
+        ctx.moveTo(x - 9, yy - 4 * dir);
+        ctx.lineTo(x, yy + 7 * dir);
+        ctx.lineTo(x + 9, yy - 4 * dir);
+        ctx.lineTo(x, yy - 1 * dir);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = up ? '#cdefff' : '#ffdcae';
+        ctx.beginPath();
+        ctx.moveTo(x - 6, yy - 3 * dir);
+        ctx.lineTo(x, yy + 4 * dir);
+        ctx.lineTo(x + 6, yy - 3 * dir);
+        ctx.lineTo(x, yy - 0.5 * dir);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    ctx.restore();
   }
 
   function drawHud() {
@@ -1755,6 +1936,7 @@
     drawBird(ctx, bird.x, by, brot, G.skin, wing, blink);
     drawHat(ctx, bird.x, by, brot, G.hat, blink);
 
+    drawWeather();
     drawHud();
     if (G.state === READY) drawReady();
     if (G.state === OVER) drawOver();
@@ -2549,6 +2731,10 @@
       openSettings, closeSettings,
       seed: () => G.seed,
       trailParticles: () => trail,
+      PATTERNS, GAP_FLOOR, CALM_PIPES, HAZARD_START,
+      run: () => ({ pipeIndex: G.pipeIndex, pattern: G.pattern && G.pattern.id,
+                    gust: G.gust && { at: G.gust.at, until: G.gust.until, force: G.gust.force },
+                    fog: G.fog && { until: G.fog.until, y: G.fog.y } }),
       COIN_PIPE, COIN_POWER, MEDAL_BONUS,
       openPlayers, closePlayers,
       storage: () => ({ backend: vault.kind, persisted: persisted }),
