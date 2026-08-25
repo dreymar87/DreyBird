@@ -17,8 +17,8 @@ const check = (name, ok, info = '') => {
 };
 
 const TYPES = {
-  '.html': 'text/html', '.js': 'text/javascript', '.png': 'image/png',
-  '.webmanifest': 'application/manifest+json', '.json': 'application/json'
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.png': 'image/png',
+  '.webmanifest': 'application/manifest+json', '.json': 'application/json; charset=utf-8'
 };
 
 const server = createServer(async (req, res) => {

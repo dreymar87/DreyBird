@@ -1,3 +1,4 @@
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>DreyBird</title>
 <meta name="description" content="A one-file tribute to Flappy Bird. Tap to flap, thread the pipes, chase a medal.">
@@ -115,15 +116,16 @@
   .iconbtn:active { transform: scale(.94); }
   .iconbtn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
   .iconbtn svg { width: 22px; height: 22px; display: block; }
-  #btn-skins { left: 8px; }
+  #btn-player { left: 8px; }
+  #btn-skins { left: 60px; }
   #btn-sound { right: 8px; }
   #stage[data-playing="1"] .iconbtn { opacity: .18; pointer-events: none; }
   .iconbtn .off-slash { display: none; }
   .iconbtn[aria-pressed="true"] .off-slash { display: block; }
   .iconbtn[aria-pressed="true"] .wave { display: none; }
 
-  /* ---- bird picker sheet ---- */
-  #sheet {
+  /* ---- overlay sheets (bird picker, players) ---- */
+  .sheet {
     position: absolute;
     inset: 0;
     display: flex;
@@ -134,8 +136,8 @@
     gap: 12px;
     z-index: 5;
   }
-  #sheet[hidden] { display: none; }
-  #sheet h2 {
+  .sheet[hidden] { display: none; }
+  .sheet h2 {
     font-family: "Press Start 2P", ui-monospace, monospace;
     font-size: 11px;
     letter-spacing: .04em;
@@ -144,14 +146,15 @@
     text-align: center;
     text-wrap: balance;
   }
-  #sheet .hint {
+  .sheet .hint {
     margin: 0;
     text-align: center;
     font-size: 11px;
     line-height: 1.45;
     color: rgba(255, 255, 255, .62);
   }
-  #skin-list {
+  .sheet .hint.warn { color: #ffcf8f; }
+  .sheet-list {
     list-style: none;
     margin: 0;
     padding: 0 2px 2px;
@@ -161,8 +164,9 @@
     overflow-y: auto;
     flex: 0 1 auto;
     margin-block: auto;
+    width: 100%;
   }
-  .skin {
+  .card {
     display: flex;
     align-items: center;
     gap: 12px;
@@ -177,20 +181,66 @@
     cursor: pointer;
     transition: background .18s ease, border-color .18s ease;
   }
-  .skin:hover:not(:disabled) { background: rgba(255, 255, 255, .14); }
-  .skin:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-  .skin[aria-pressed="true"] { border-color: var(--accent); background: rgba(245, 179, 45, .18); }
-  .skin:disabled { cursor: not-allowed; opacity: .55; }
-  .skin canvas { width: 42px; height: 30px; image-rendering: pixelated; flex: none; }
-  .skin .meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-  .skin .name {
+  .card:hover:not(:disabled) { background: rgba(255, 255, 255, .14); }
+  .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .card[aria-pressed="true"] { border-color: var(--accent); background: rgba(245, 179, 45, .18); }
+  .card:disabled { cursor: not-allowed; opacity: .55; }
+  .card canvas { width: 42px; height: 30px; image-rendering: pixelated; flex: none; }
+  .card .meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+  .card .name {
     font-family: "Press Start 2P", ui-monospace, monospace;
     font-size: 9px;
     letter-spacing: .03em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .skin .req { font-size: 11px; color: rgba(255, 255, 255, .6); }
-  .skin[aria-pressed="true"] .req { color: var(--accent); }
-  #sheet-close {
+  .card .req { font-size: 11px; color: rgba(255, 255, 255, .6); }
+  .card[aria-pressed="true"] .req { color: var(--accent); }
+
+  /* players: the active row grows a rename/delete strip */
+  .player-row { display: flex; flex-direction: column; gap: 0; }
+  .name-input {
+    font-family: "Press Start 2P", ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: .03em;
+    color: #fff;
+    background: rgba(0, 0, 0, .35);
+    border: 1px solid var(--accent);
+    border-radius: 2px;
+    padding: 4px 5px;
+    width: 100%;
+    min-width: 0;
+  }
+  .name-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .row-tools {
+    display: flex;
+    gap: 6px;
+    padding: 0 10px 8px;
+    margin-top: -1px;
+    border: 1px solid var(--accent);
+    border-top: none;
+    border-radius: 0 0 3px 3px;
+    background: rgba(245, 179, 45, .18);
+  }
+  .tool {
+    flex: 1;
+    font-family: inherit;
+    font-size: 11px;
+    padding: 7px 6px;
+    color: #fff;
+    background: rgba(0, 0, 0, .28);
+    border: 1px solid rgba(255, 255, 255, .18);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .tool:hover { background: rgba(0, 0, 0, .45); }
+  .tool:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+  .tool[data-armed="1"] { background: #a3281a; border-color: #e0452f; }
+  .tool:disabled { opacity: .4; cursor: not-allowed; }
+
+  .sheet-actions { display: flex; gap: 6px; }
+  .sheet-btn {
     font-family: "Press Start 2P", ui-monospace, monospace;
     font-size: 10px;
     padding: 13px;
@@ -201,8 +251,9 @@
     cursor: pointer;
     letter-spacing: .06em;
   }
-  #sheet-close:hover { background: rgba(255, 255, 255, .18); }
-  #sheet-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .sheet-actions .sheet-btn { flex: 1; font-size: 8px; padding: 11px 4px; }
+  .sheet-btn:hover { background: rgba(255, 255, 255, .18); }
+  .sheet-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   footer {
     font-size: 11.5px;
@@ -258,6 +309,13 @@
 <div id="stage" data-playing="0">
   <canvas id="game" width="576" height="1024" role="img" aria-label="DreyBird — tap to flap"></canvas>
 
+  <button id="btn-player" class="iconbtn" type="button" aria-label="Players">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="8" r="3.6"></circle>
+      <path d="M4.8 20a7.2 7.2 0 0 1 14.4 0"></path>
+    </svg>
+  </button>
+
   <button id="btn-skins" class="iconbtn" type="button" aria-label="Choose your bird">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M12 3a9 9 0 0 0 0 18h2a2 2 0 0 0 1.5-3.3 2 2 0 0 1 1.5-3.3H19a2.6 2.6 0 0 0 2-2.6A9 9 0 0 0 12 3Z"></path>
@@ -281,11 +339,24 @@
     </svg>
   </button>
 
-  <div id="sheet" hidden role="dialog" aria-modal="true" aria-label="Choose your bird">
+  <div id="sheet" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Choose your bird">
     <h2>Pick a Bird</h2>
     <p class="hint">New birds unlock as your best score climbs.</p>
-    <ul id="skin-list"></ul>
-    <button id="sheet-close" type="button">Back</button>
+    <ul id="skin-list" class="sheet-list"></ul>
+    <button id="sheet-close" class="sheet-btn" type="button">Back</button>
+  </div>
+
+  <div id="players" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Players">
+    <h2>Players</h2>
+    <p class="hint" id="storage-note">Checking where your scores are saved…</p>
+    <ul id="player-list" class="sheet-list"></ul>
+    <div class="sheet-actions">
+      <button id="player-new" class="sheet-btn" type="button">New</button>
+      <button id="player-export" class="sheet-btn" type="button">Save file</button>
+      <button id="player-import" class="sheet-btn" type="button">Load file</button>
+    </div>
+    <button id="players-close" class="sheet-btn" type="button">Back</button>
+    <input id="player-file" type="file" accept="application/json,.json" hidden>
   </div>
 </div>
 
@@ -330,7 +401,10 @@
 
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  /* ── persistence ────────────────────────────────────────────────── */
+  /* ── persistence ──────────────────────────────────────────────────
+     Two device-level preferences stay in localStorage (mute, legacy keys).
+     Everything a *player* owns lives in the vault below.
+     Nothing here is security: profiles are labels on a couch game. */
   const store = {
     get(k, d) {
       try { const v = localStorage.getItem('dreybird.' + k); return v == null ? d : JSON.parse(v); }
@@ -338,6 +412,208 @@
     },
     set(k, v) { try { localStorage.setItem('dreybird.' + k, JSON.stringify(v)); } catch (e) { /* private mode */ } }
   };
+
+  /* ── the vault: IndexedDB, falling back to localStorage ───────────
+     IndexedDB because a profile is a structured record with history, not
+     a string. localStorage stays as the fallback for private windows and
+     anywhere IndexedDB is blocked — the game must never fail to start
+     because storage is unavailable.
+
+     Every method is async, but the game loop is not: the vault is read
+     once during boot and held in memory, and writes are fire-and-forget.
+     This is also the seam a future server sync would slot into. */
+  const DB_NAME = 'dreybird', DB_VER = 1, LS_VAULT = 'dreybird.vault';
+
+  const vault = {
+    kind: 'none',
+    db: null,
+
+    /* Writes are started immediately but run one at a time. Without the
+       queue, a profile write and the active-profile write can interleave
+       and a reload can catch the store half-updated. flush() is the
+       promise that everything queued so far has landed. */
+    chain: Promise.resolve(),
+    enqueue(work) {
+      this.chain = this.chain.then(work, work);
+      return this.chain;
+    },
+    flush() { return this.chain; },
+
+    async open() {
+      try {
+        this.db = await new Promise((res, rej) => {
+          if (!self.indexedDB) return rej(new Error('no indexedDB'));
+          const req = indexedDB.open(DB_NAME, DB_VER);
+          req.onupgradeneeded = () => {
+            const d = req.result;
+            if (!d.objectStoreNames.contains('profiles')) d.createObjectStore('profiles', { keyPath: 'id' });
+            if (!d.objectStoreNames.contains('meta')) d.createObjectStore('meta');
+          };
+          req.onsuccess = () => res(req.result);
+          req.onerror = () => rej(req.error || new Error('open failed'));
+          req.onblocked = () => rej(new Error('blocked'));
+        });
+        this.kind = 'indexeddb';
+      } catch (e) {
+        this.db = null;
+        this.kind = self.localStorage ? 'localstorage' : 'memory';
+      }
+      return this.kind;
+    },
+
+    tx(names, mode) {
+      const t = this.db.transaction(names, mode);
+      return names.map(n => t.objectStore(n)).concat(t);
+    },
+
+    req(request) {
+      return new Promise((res, rej) => {
+        request.onsuccess = () => res(request.result);
+        request.onerror = () => rej(request.error);
+      });
+    },
+
+    lsRead() {
+      try { return JSON.parse(localStorage.getItem(LS_VAULT)) || null; } catch (e) { return null; }
+    },
+    lsWrite(state) {
+      try { localStorage.setItem(LS_VAULT, JSON.stringify(state)); } catch (e) { /* full or blocked */ }
+    },
+
+    async load() {
+      if (this.kind === 'indexeddb') {
+        try {
+          const [profs, meta] = this.tx(['profiles', 'meta'], 'readonly');
+          const list = await this.req(profs.getAll());
+          const activeId = await this.req(meta.get('activeId'));
+          return { profiles: list || [], activeId: activeId || null };
+        } catch (e) { /* fall through to the fallback below */ }
+      }
+      const state = this.kind === 'memory' ? null : this.lsRead();
+      return state || { profiles: [], activeId: null };
+    },
+
+    putProfile(profile) { return this.enqueue(() => this.writePutProfile(profile)); },
+
+    async writePutProfile(profile) {
+      if (this.kind === 'indexeddb') {
+        try {
+          const [profs] = this.tx(['profiles'], 'readwrite');
+          await this.req(profs.put(profile));
+          return;
+        } catch (e) { /* fall through */ }
+      }
+      if (this.kind === 'memory') return;
+      const state = this.lsRead() || { profiles: [], activeId: null };
+      const i = state.profiles.findIndex(p => p.id === profile.id);
+      if (i < 0) state.profiles.push(profile); else state.profiles[i] = profile;
+      this.lsWrite(state);
+    },
+
+    delProfile(id) { return this.enqueue(() => this.writeDelProfile(id)); },
+
+    async writeDelProfile(id) {
+      if (this.kind === 'indexeddb') {
+        try {
+          const [profs] = this.tx(['profiles'], 'readwrite');
+          await this.req(profs.delete(id));
+          return;
+        } catch (e) { /* fall through */ }
+      }
+      if (this.kind === 'memory') return;
+      const state = this.lsRead() || { profiles: [], activeId: null };
+      state.profiles = state.profiles.filter(p => p.id !== id);
+      this.lsWrite(state);
+    },
+
+    setActive(id) { return this.enqueue(() => this.writeSetActive(id)); },
+
+    async writeSetActive(id) {
+      if (this.kind === 'indexeddb') {
+        try {
+          const [meta] = this.tx(['meta'], 'readwrite');
+          await this.req(meta.put(id, 'activeId'));
+          return;
+        } catch (e) { /* fall through */ }
+      }
+      if (this.kind === 'memory') return;
+      const state = this.lsRead() || { profiles: [], activeId: null };
+      state.activeId = id;
+      this.lsWrite(state);
+    }
+  };
+
+  /* ── profiles ─────────────────────────────────────────────────────
+     A profile is who is playing, not an account: no password, no server.
+     Several people share a device; each keeps their own bird and record. */
+  const MAX_NAME = 12;
+
+  function newProfile(name) {
+    return {
+      id: 'p' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36),
+      name: (name || 'Player').slice(0, MAX_NAME),
+      skin: 'classic',
+      best: 0,
+      created: Date.now(),
+      stats: { games: 0, pipes: 0, longest: 0, powers: 0, bronze: 0, silver: 0, gold: 0, platinum: 0 }
+    };
+  }
+
+  // Tolerate anything: imported files and older records may be partial.
+  function sane(p) {
+    const d = newProfile(p && p.name);
+    if (!p || typeof p !== 'object') return d;
+    const st = p.stats && typeof p.stats === 'object' ? p.stats : {};
+    const num = (v, f) => (typeof v === 'number' && isFinite(v) && v >= 0 ? Math.floor(v) : f);
+    return {
+      id: typeof p.id === 'string' && p.id ? p.id : d.id,
+      name: (typeof p.name === 'string' && p.name.trim() ? p.name.trim() : d.name).slice(0, MAX_NAME),
+      skin: typeof p.skin === 'string' ? p.skin : 'classic',
+      best: num(p.best, 0),
+      created: num(p.created, d.created),
+      stats: {
+        games: num(st.games, 0), pipes: num(st.pipes, 0), longest: num(st.longest, 0),
+        powers: num(st.powers, 0), bronze: num(st.bronze, 0), silver: num(st.silver, 0),
+        gold: num(st.gold, 0), platinum: num(st.platinum, 0)
+      }
+    };
+  }
+
+  let profiles = [];
+  let profile = null;
+  let persisted = false;
+  let persistAsked = false;
+
+  // Written immediately, not debounced: saves happen at the end of a run
+  // or when a bird is picked — rare events, and exactly the moments a
+  // player is most likely to close the tab. A debounce here would quietly
+  // drop the run someone just finished.
+  function saveProfile() {
+    if (!profile) return Promise.resolve();
+    return vault.putProfile(JSON.parse(JSON.stringify(profile)));
+  }
+
+  function applyProfile() {
+    if (!profile) return;
+    G.best = profile.best;
+    G.skin = SKINS.find(s => s.id === profile.skin) || SKINS[0];
+  }
+
+  /* Durable storage is not the default: browsers evict under pressure and
+     iOS drops site data after about a week of no visits. Ask, then tell
+     the player the truth about the answer. */
+  async function askPersist() {
+    if (persistAsked) return persisted;
+    persistAsked = true;
+    try {
+      if (navigator.storage && navigator.storage.persisted) {
+        persisted = await navigator.storage.persisted();
+        if (!persisted && navigator.storage.persist) persisted = await navigator.storage.persist();
+      }
+    } catch (e) { persisted = false; }
+    updateStorageNote();
+    return persisted;
+  }
 
   /* ── skins: pure palette swaps of one pixel grid ────────────────── */
   const SKINS = [
@@ -439,7 +715,7 @@
   const G = {
     state: READY,
     score: 0,
-    best: store.get('best', 0),
+    best: 0,
     newBest: false,
     ticks: 0,
     scroll: 0,        // ground / cycle scroll distance
@@ -451,7 +727,8 @@
     slow: 0,          // remaining slow-mo ticks
     invuln: 0,
     lastGap: 200,
-    skin: SKINS.find(s => s.id === store.get('skin', 'classic')) || SKINS[0]
+    runTicks: 0,
+    skin: SKINS[0]
   };
 
   const unlocked = s => G.best >= s.need;
@@ -517,6 +794,7 @@
   function startPlay() {
     G.state = PLAYING;
     G.ticks = 0;
+    G.runTicks = 0;
     pipes.length = 0;
     powers.length = 0;
     spawnPipe(W + 40);
@@ -545,8 +823,22 @@
   function land() {
     G.state = OVER;
     G.overAt = G.ticks;
-    if (G.score > G.best) { G.best = G.score; G.newBest = true; store.set('best', G.best); buildSheet(); }
+    if (G.score > G.best) { G.best = G.score; G.newBest = true; buildSheet(); }
+    recordRun();
     syncStage();
+  }
+
+  // One finished run, folded into whoever is playing.
+  function recordRun() {
+    if (!profile) return;
+    const st = profile.stats;
+    st.games++;
+    st.longest = Math.max(st.longest, G.runTicks);
+    if (G.score > profile.best) profile.best = G.score;
+    const m = medalFor(G.score);
+    if (m) st[m.name.toLowerCase()]++;
+    saveProfile();
+    buildPlayers();
   }
 
   function puff(x, y, color, n) {
@@ -578,6 +870,7 @@
       G.scroll += SPEED;
       G.cycle += SPEED;
     } else if (G.state === PLAYING) {
+      G.runTicks++;
       bird.vy = clamp(bird.vy + GRAVITY * ts, -20, MAX_VY);
       bird.y += bird.vy * ts;
       G.scroll += SPEED * ts;
@@ -597,6 +890,7 @@
         if (!p.scored && p.x + PIPE_W / 2 < bird.x) {
           p.scored = true;
           G.score++;
+          if (profile) profile.stats.pipes++;
           audio.score();
         }
       }
@@ -609,6 +903,7 @@
           q.got = true;
           if (q.kind === 'shield') G.shield = true;
           else G.slow = PU_TICKS;
+          if (profile) profile.stats.powers++;
           audio.power();
           puff(q.x, q.y, q.kind === 'shield' ? '#7fdcff' : '#c9a0ff', 10);
         }
@@ -884,6 +1179,7 @@
       textOut(ctx, 'TAP TO FLAP', W / 2, 316, 11, '#ffffff', '#20160a');
     }
     textOut(ctx, 'BEST  ' + G.best, W / 2, 356, 8, '#ffe07a', '#20160a');
+    if (profile) textOut(ctx, profile.name.toUpperCase(), W / 2, 176, 7, '#d8f2ff', '#20160a');
   }
 
   function drawOver() {
@@ -1002,6 +1298,7 @@
 
   const stage = document.getElementById('stage');
   const sheet = document.getElementById('sheet');
+  const playersSheet = document.getElementById('players');
   const skinList = document.getElementById('skin-list');
   const btnSkins = document.getElementById('btn-skins');
   const btnSound = document.getElementById('btn-sound');
@@ -1011,8 +1308,9 @@
   }
 
   function press() {
-    if (!sheet.hidden) return;
+    if (!sheet.hidden || !playersSheet.hidden) return;
     audio.ensure();
+    askPersist();
     if (G.state === READY) { startPlay(); flap(); }
     else if (G.state === PLAYING) flap();
     else if (G.state === OVER && G.ticks - G.overAt > 24) resetWorld();
@@ -1026,9 +1324,14 @@
       e.preventDefault();
       press();
     }
-    if (e.code === 'Escape' && !sheet.hidden) closeSheet();
+    if (e.code === 'Escape') {
+      if (!sheet.hidden) closeSheet();
+      else if (!playersSheet.hidden) closePlayers();
+    }
   });
   addEventListener('blur', () => { if (G.state === PLAYING) { /* keep running; dt is clamped */ } });
+  addEventListener('pagehide', () => { saveProfile(); });
+  addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveProfile(); });
 
   /* ══════════════════ bird picker ══════════════════ */
 
@@ -1070,7 +1373,7 @@
       b.addEventListener('click', () => {
         if (!unlocked(s)) return;
         G.skin = s;
-        store.set('skin', s.id);
+        if (profile) { profile.skin = s.id; saveProfile(); buildPlayers(); }
         buildSheet();
       });
       li.appendChild(b);
@@ -1094,27 +1397,331 @@
   btnSound.setAttribute('aria-pressed', String(audio.muted));
   btnSound.setAttribute('aria-label', audio.muted ? 'Unmute sound' : 'Mute sound');
 
-  /* ══════════════════ boot ══════════════════ */
+  /* ══════════════════ players ══════════════════ */
 
-  buildSheet();
-  resetWorld();
+  const btnPlayer = document.getElementById('btn-player');
+  const playerList = document.getElementById('player-list');
+  const storageNote = document.getElementById('storage-note');
+  const fileInput = document.getElementById('player-file');
+  let editingId = null;       // profile whose name is being typed
+  let armedDelete = null;     // profile whose delete button is armed
 
-  const go = () => requestAnimationFrame(loop);
-  if (document.fonts && document.fonts.load) {
-    document.fonts.load('12px "Press Start 2P"').then(go, go);
-  } else {
-    go();
+  function updateStorageNote() {
+    if (!storageNote) return;
+    if (vault.kind === 'memory') {
+      storageNote.textContent = 'This browser is blocking storage, so scores last only until you close the tab.';
+      storageNote.className = 'hint warn';
+    } else if (persisted) {
+      storageNote.textContent = 'Saved on this device. The browser has agreed not to clear it.';
+      storageNote.className = 'hint';
+    } else {
+      storageNote.textContent = 'Saved on this device, but the browser may still clear it. Add DreyBird to your home screen, or keep a copy with Save file.';
+      storageNote.className = 'hint warn';
+    }
   }
 
-  // Hook for the headless test harness — lets a test drive the exact same
-  // loop with synthetic timestamps instead of real frames.
-  window.__dreybird = {
-    W, H, GY, SPEED, SPACING, PIPE_W, GAP, PU_TICKS,
-    G, bird, pipes, powers,
-    frame, tick, flap, press, resetWorld, startPlay, drawBird, SKINS,
-    states: { READY, PLAYING, DYING, OVER },
-    detach() { started = false; acc = 0; }
-  };
+  function playerPreview(p) {
+    const skin = SKINS.find(s => s.id === p.skin) || SKINS[0];
+    const c = document.createElement('canvas');
+    c.width = ART_W * CELL * 2;
+    c.height = ART_H * CELL * 2 + 12;
+    const g = c.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    g.setTransform(2, 0, 0, 2, 0, 0);
+    drawBird(g, ART_W * CELL / 2, ART_H * CELL / 2 + 3, 0, skin, 0, skin.alpha || 1);
+    return c;
+  }
+
+  function summarise(p) {
+    const st = p.stats;
+    const medals = st.platinum + st.gold + st.silver + st.bronze;
+    const bits = ['Best ' + p.best, st.games + (st.games === 1 ? ' game' : ' games')];
+    if (medals) bits.push(medals + (medals === 1 ? ' medal' : ' medals'));
+    return bits.join('  ·  ');
+  }
+
+  function buildPlayers() {
+    if (!playerList) return;
+    playerList.textContent = '';
+
+    for (const p of profiles) {
+      const active = profile && p.id === profile.id;
+      const li = document.createElement('li');
+      li.className = 'player-row';
+
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'card';
+      b.setAttribute('aria-pressed', String(active));
+      b.appendChild(playerPreview(p));
+
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+
+      if (editingId === p.id) {
+        const input = document.createElement('input');
+        input.className = 'name-input';
+        input.type = 'text';
+        input.maxLength = MAX_NAME;
+        input.value = p.name;
+        input.setAttribute('aria-label', 'Player name');
+        const commit = () => {
+          const v = input.value.trim().slice(0, MAX_NAME);
+          if (v) { p.name = v; vault.putProfile(JSON.parse(JSON.stringify(p))); }
+          editingId = null;
+          buildPlayers();
+        };
+        input.addEventListener('keydown', e => {
+          e.stopPropagation();
+          if (e.key === 'Enter') commit();
+          if (e.key === 'Escape') { editingId = null; buildPlayers(); }
+        });
+        input.addEventListener('blur', commit);
+        input.addEventListener('click', e => e.stopPropagation());
+        meta.appendChild(input);
+        setTimeout(() => { input.focus(); input.select(); }, 0);
+      } else {
+        const name = document.createElement('span');
+        name.className = 'name';
+        name.textContent = p.name;
+        meta.appendChild(name);
+      }
+
+      const req = document.createElement('span');
+      req.className = 'req';
+      req.textContent = summarise(p);
+      meta.appendChild(req);
+      b.appendChild(meta);
+
+      b.addEventListener('click', () => {
+        if (editingId === p.id) return;
+        switchProfile(p.id);
+      });
+      li.appendChild(b);
+
+      // Rename and delete belong to the row you are already on, so there
+      // is no second dialog to get lost in.
+      if (active && editingId !== p.id) {
+        const tools = document.createElement('div');
+        tools.className = 'row-tools';
+
+        const rename = document.createElement('button');
+        rename.type = 'button';
+        rename.className = 'tool';
+        rename.textContent = 'Rename';
+        rename.addEventListener('click', () => { armedDelete = null; editingId = p.id; buildPlayers(); });
+
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'tool';
+        del.textContent = armedDelete === p.id ? 'Delete for good?' : 'Delete';
+        if (armedDelete === p.id) del.dataset.armed = '1';
+        del.disabled = profiles.length < 2;      // someone has to be playing
+        del.addEventListener('click', () => {
+          if (armedDelete !== p.id) { armedDelete = p.id; buildPlayers(); return; }
+          armedDelete = null;
+          deleteProfile(p.id);
+        });
+
+        tools.append(rename, del);
+        li.appendChild(tools);
+      }
+
+      playerList.appendChild(li);
+    }
+  }
+
+  function switchProfile(id) {
+    const p = profiles.find(x => x.id === id);
+    if (!p || (profile && p.id === profile.id)) return;
+    profile = p;
+    editingId = armedDelete = null;
+    vault.setActive(p.id);
+    applyProfile();
+    resetWorld();
+    buildSheet();
+    buildPlayers();
+  }
+
+  function createProfile(name) {
+    const p = newProfile(name || 'Player ' + (profiles.length + 1));
+    profiles.push(p);
+    vault.putProfile(p);
+    profile = p;
+    vault.setActive(p.id);
+    applyProfile();
+    resetWorld();
+    editingId = p.id;
+    buildSheet();
+    buildPlayers();
+    return p;
+  }
+
+  function deleteProfile(id) {
+    if (profiles.length < 2) return;
+    const wasActive = profile && profile.id === id;
+    profiles = profiles.filter(p => p.id !== id);
+    vault.delProfile(id);
+    if (wasActive) {
+      profile = profiles[0];
+      vault.setActive(profile.id);
+      applyProfile();
+      resetWorld();
+      buildSheet();
+    }
+    buildPlayers();
+  }
+
+  /* Export/import is the only thing that survives a cleared browser or a
+     lost phone, which is what makes staying local defensible. */
+  function exportSave() {
+    return { app: 'dreybird', version: 1, exported: Date.now(), profiles: profiles.map(sane) };
+  }
+
+  function importSave(data) {
+    if (!data || data.app !== 'dreybird' || !Array.isArray(data.profiles)) {
+      return { ok: false, added: 0, merged: 0, reason: 'That file is not a DreyBird save.' };
+    }
+    let added = 0, merged = 0;
+    for (const raw of data.profiles) {
+      const incoming = sane(raw);
+      const mine = profiles.find(p => p.id === incoming.id);
+      if (!mine) {
+        profiles.push(incoming);
+        vault.putProfile(incoming);
+        added++;
+      } else {
+        // Never silently lose a record: keep the better of each number.
+        mine.best = Math.max(mine.best, incoming.best);
+        for (const k of Object.keys(mine.stats)) {
+          mine.stats[k] = Math.max(mine.stats[k], incoming.stats[k] || 0);
+        }
+        if (mine.name !== incoming.name && incoming.name) mine.name = incoming.name;
+        vault.putProfile(JSON.parse(JSON.stringify(mine)));
+        merged++;
+      }
+    }
+    applyProfile();
+    buildSheet();
+    buildPlayers();
+    return { ok: true, added: added, merged: merged };
+  }
+
+  function openPlayers() {
+    editingId = armedDelete = null;
+    buildPlayers();
+    updateStorageNote();
+    askPersist();
+    playersSheet.hidden = false;
+    document.getElementById('players-close').focus();
+  }
+  function closePlayers() {
+    editingId = armedDelete = null;
+    playersSheet.hidden = true;
+    btnPlayer.focus();
+  }
+
+  btnPlayer.addEventListener('click', openPlayers);
+  document.getElementById('players-close').addEventListener('click', closePlayers);
+  document.getElementById('player-new').addEventListener('click', () => createProfile());
+
+  document.getElementById('player-export').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(exportSave(), null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'dreybird-save.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+
+  document.getElementById('player-import').addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      let result;
+      try { result = importSave(JSON.parse(String(reader.result))); }
+      catch (e) { result = { ok: false, reason: 'That file could not be read.' }; }
+      if (!result.ok) {
+        storageNote.textContent = result.reason;
+        storageNote.className = 'hint warn';
+      } else {
+        storageNote.textContent = 'Loaded ' + result.added + ' new, updated ' + result.merged + '.';
+        storageNote.className = 'hint';
+      }
+    };
+    reader.readAsText(file);
+    fileInput.value = '';
+  });
+
+  /* ══════════════════ boot ══════════════════ */
+
+  // Storage is async; the game loop is not. Read everything once, here,
+  // and hand the loop a plain object it can touch synchronously.
+  async function boot() {
+    await vault.open();
+    const state = await vault.load();
+    profiles = (state.profiles || []).map(sane);
+    profiles.sort((a, b) => a.created - b.created);
+
+    if (!profiles.length) {
+      // First run of this version: carry over whatever the old
+      // single-player build saved, so nobody loses a high score.
+      const legacyBest = store.get('best', null);
+      const legacySkin = store.get('skin', null);
+      const first = newProfile('Player 1');
+      if (typeof legacyBest === 'number' && legacyBest > 0) first.best = legacyBest;
+      if (typeof legacySkin === 'string') first.skin = legacySkin;
+      profiles.push(first);
+      await vault.putProfile(first);
+      await vault.setActive(first.id);
+    }
+
+    profile = profiles.find(p => p.id === state.activeId) || profiles[0];
+    if (profile.id !== state.activeId) vault.setActive(profile.id);
+
+    applyProfile();
+    try {
+      if (navigator.storage && navigator.storage.persisted) persisted = await navigator.storage.persisted();
+    } catch (e) { persisted = false; }
+
+    buildSheet();
+    buildPlayers();
+    updateStorageNote();
+    resetWorld();
+
+    const go = () => requestAnimationFrame(loop);
+    if (document.fonts && document.fonts.load) {
+      document.fonts.load('12px "Press Start 2P"').then(go, go);
+    } else {
+      go();
+    }
+
+    // Hook for the headless test harness — lets a test drive the exact same
+    // loop with synthetic timestamps instead of real frames. Published only
+    // once boot has finished, so a test that sees it sees loaded profiles.
+    window.__dreybird = {
+      W, H, GY, SPEED, SPACING, PIPE_W, GAP, PU_TICKS,
+      G, bird, pipes, powers,
+      frame, tick, flap, press, resetWorld, startPlay, drawBird, SKINS,
+      states: { READY, PLAYING, DYING, OVER },
+      detach() { started = false; acc = 0; },
+      // profiles
+      vault,
+      profiles: () => profiles,
+      active: () => profile,
+      createProfile, switchProfile, deleteProfile, exportSave, importSave,
+      openPlayers, closePlayers,
+      storage: () => ({ backend: vault.kind, persisted: persisted }),
+      flush: () => vault.flush()
+    };
+  }
+
+  boot();
 })();
 </script>
 

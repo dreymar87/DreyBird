@@ -27,6 +27,36 @@ It launches fullscreen and portrait, with no browser bar. Your best score and
 chosen bird come along, because the installed app shares the browser's
 storage for the same site.
 
+## Players
+
+Tap the person icon (top-left) to manage players. Several people can share
+one device — each keeps their own bird, best score, medal case and game
+count, and the title screen shows whose turn it is. Rename and delete live
+on the row of whoever is active; you can't delete the last one.
+
+These are labels, not accounts: no passwords, no sign-in, no server. Nothing
+you do in DreyBird leaves your device.
+
+### What "saved" actually means
+
+Browser storage is evictable by default. Chrome discards it under disk
+pressure, and iOS Safari drops site data after about a week without a visit.
+DreyBird asks for an exemption via `navigator.storage.persist()` and tells
+you the real answer in the Players sheet — Safari only grants it once the
+game is on your home screen, which is one more reason to install it.
+
+Two things make that safe:
+
+- **Save file** writes every player to `dreybird-save.json`.
+- **Load file** reads one back, merging by player. On a conflict it keeps
+  the *better* of each number, so importing an old backup can never lower a
+  best score or wipe a medal.
+
+Scores live in IndexedDB, falling back to `localStorage` automatically where
+IndexedDB is blocked (private windows, some embedded browsers). If you played
+an earlier version, your existing best score is migrated into the first
+player rather than lost.
+
 ## How to play
 
 | Input | Action |
@@ -74,6 +104,11 @@ Plain JavaScript on a `<canvas>`, roughly 900 lines:
 - **Offline by default.** `sw.js` is a hand-written service worker — no
   Workbox — that precaches the app shell and keeps the pixel typeface in a
   stale-while-revalidate cache. Bump `CACHE` in it to ship an update.
+- **Async storage, synchronous loop.** The vault is read once during boot
+  into a plain object; the game loop never awaits anything. Writes go through
+  an ordered queue so a reload can't catch the store half-updated, and they
+  fire immediately rather than on a debounce — the moment a run ends is
+  exactly when someone closes the tab.
 - **Icons are generated, not drawn.** `test/make-icons.mjs` renders them with
   the game's own bird code, so the app icon can never drift from the bird.
 
@@ -85,13 +120,18 @@ physics, scoring, collisions, power-ups, unlocks and mobile layout:
 npm i -D playwright && npx playwright install chromium
 node test/smoke.mjs      # 15 gameplay checks
 node test/pwa.mjs        # installability + a real offline run
+node test/profiles.mjs   # 19 storage, profile and import/export checks
 node test/make-icons.mjs # regenerate the app icons
 ```
 
 `smoke.mjs` drops screenshots of each game state into `test/shots/`.
 `pwa.mjs` serves the repo on localhost, waits for the service worker to take
 control, then pulls the network out and proves the game still boots, starts
-on a tap and scores.
+on a tap and scores. `profiles.mjs` covers the storage layer: migration from
+the old single-player build, two players not bleeding into each other,
+surviving a reload both with and without an explicit flush, both answers to
+the persistent-storage request, export/import round trips, and the game still
+working with IndexedDB blocked entirely.
 
 `.github/workflows/pages.yml` deploys `index.html`, the manifest, the service
 worker and the icons to GitHub Pages on every push.
