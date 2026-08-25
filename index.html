@@ -1625,9 +1625,27 @@
   document.getElementById('players-close').addEventListener('click', closePlayers);
   document.getElementById('player-new').addEventListener('click', () => createProfile());
 
-  document.getElementById('player-export').addEventListener('click', () => {
-    const blob = new Blob([JSON.stringify(exportSave(), null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
+  // Embedded viewers (the published artifact among them) refuse
+  // page-initiated downloads, so a download link there is a dead button.
+  // Fall back to the clipboard, which works everywhere.
+  const canDownload = window.top === window.self;
+  const exportBtn = document.getElementById('player-export');
+  if (!canDownload) exportBtn.textContent = 'Copy save';
+
+  exportBtn.addEventListener('click', async () => {
+    const text = JSON.stringify(exportSave(), null, 2);
+    if (!canDownload) {
+      try {
+        await navigator.clipboard.writeText(text);
+        storageNote.textContent = 'Save copied to the clipboard. Paste it somewhere safe.';
+        storageNote.className = 'hint';
+      } catch (e) {
+        storageNote.textContent = 'This viewer blocks both downloads and the clipboard. Open the game in its own tab to save a copy.';
+        storageNote.className = 'hint warn';
+      }
+      return;
+    }
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
     const a = document.createElement('a');
     a.href = url;
     a.download = 'dreybird-save.json';
