@@ -104,10 +104,49 @@ check('theme-color is declared for both themes',
 check('install button stays hidden until the browser offers a prompt',
   await page.isHidden('#install'));
 
+// --- an optional font must never be able to hang the game --------------
+{
+  // The service worker intercepts the font host. If that handler never
+  // settles, the stylesheet request stays pending, the parser refuses to
+  // run the scripts after it, and the page sits at readyState "loading"
+  // forever — a hang on any captive portal or blackholed network. This
+  // simulates exactly that: a font host that accepts and never answers.
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  page.on('pageerror', e => errors.push(String(e)));
+  await page.route('https://fonts.googleapis.com/**', () => { /* never fulfilled */ });
+  await page.route('https://fonts.gstatic.com/**', () => { /* never fulfilled */ });
+
+  let booted = false;
+  try {
+    await page.goto(ORIGIN, { waitUntil: 'commit' });
+    await page.waitForFunction(() => !!window.__dreybird, null, { timeout: 12000 });
+    booted = true;
+  } catch (e) { /* left hanging */ }
+  check('a font host that never answers cannot stop the game booting',
+    booted, booted ? 'booted without waiting for the typeface' : 'stuck at readyState loading');
+
+  if (booted) {
+    const playable = await page.evaluate(() => {
+      const d = __dreybird;
+      d.resetWorld(); d.startPlay(5); if (d.resumeRun) d.resumeRun();
+      for (let i = 0; i < 60; i++) { if (d.bird.y > 235) d.flap(); d.tick(); }
+      return d.G.ticks;
+    });
+    check('and it is playable on the fallback typeface', playable === 60, 'ticks=' + playable);
+  } else {
+    check('and it is playable on the fallback typeface', false, 'never booted');
+  }
+  await context.close();
+}
+
 // --- the point of all this: it plays with the network off -------------
 await page.evaluate(() => navigator.serviceWorker.ready);
 await context.setOffline(true);
 await page.reload({ waitUntil: 'domcontentloaded' });
+// Boot is async — it opens the vault before publishing the hook — so
+// DOMContentLoaded is not the same moment as "the game is ready".
+await page.waitForFunction(() => !!window.__dreybird, null, { timeout: 10000 });
 const offline = await page.evaluate(async () => {
   if (!window.__dreybird) return { booted: false };
   const d = window.__dreybird;

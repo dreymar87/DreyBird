@@ -1,7 +1,7 @@
 /* DreyBird service worker — hand-rolled, no dependencies.
    Bump CACHE to ship an update; the old cache is dropped on activate. */
 
-const CACHE = 'dreybird-v9';   // bumped when the app shell changes
+const CACHE = 'dreybird-v10';   // bumped when the app shell changes
 const RUNTIME = 'dreybird-runtime-v1';
 
 const SHELL = [
@@ -73,6 +73,14 @@ function cacheFirst(req) {
   });
 }
 
+/* The font host is optional, so nothing here may ever hang on it.
+   respondWith() that never settles leaves the request pending, and a
+   pending stylesheet blocks the parser from running the scripts after it
+   — the whole page sits at readyState "loading" forever. That is a hang
+   on any captive portal or blackholed network, which is far worse than
+   simply not having the pixel typeface. */
+const FONT_TIMEOUT = 3000;
+
 function staleWhileRevalidate(req) {
   return caches.open(RUNTIME).then(cache =>
     cache.match(req).then(hit => {
@@ -82,8 +90,18 @@ function staleWhileRevalidate(req) {
           if (res && (res.ok || res.type === 'opaque')) cache.put(req, res.clone());
           return res;
         })
-        .catch(() => hit);
-      return hit || network;
+        .catch(() => null);
+
+      if (hit) return hit;
+
+      // Whatever happens, settle. An empty stylesheet is a fine answer:
+      // the page has a real fallback stack and carries on.
+      const giveUp = new Promise(resolve => setTimeout(resolve, FONT_TIMEOUT, null));
+      return Promise.race([network, giveUp])
+        .then(res => res || new Response('', {
+          status: 200,
+          headers: { 'content-type': 'text/css' }
+        }));
     })
   );
 }

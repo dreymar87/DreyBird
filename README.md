@@ -223,8 +223,17 @@ Plain JavaScript on a `<canvas>`, roughly 900 lines:
   draws happen unconditionally, before the score is consulted, so the pipe
   sequence depends on the seed alone and not on how well you are playing.
   Cosmetic jitter deliberately stays unseeded: it can't affect fairness.
-- **Nothing external.** One optional Google Fonts request for the pixel
-  typeface; the game plays fine without it.
+- **Nothing external, and nothing waited on.** One optional Google Fonts
+  request for the pixel typeface. The link carries `media="print"` so it
+  stays off the parser's critical path, and the service worker's font
+  handler races the network against a timeout and synthesises an empty
+  stylesheet rather than leaving the request pending.
+
+  Both matter: a pending stylesheet blocks the parser from running the
+  scripts after it, so a font host that accepts a connection and never
+  answers — a captive portal, a blackholed network — used to hang the
+  whole game at `readyState: "loading"`. `pwa.mjs` simulates exactly that
+  and asserts the game still boots and plays.
 - **Offline by default.** `sw.js` is a hand-written service worker — no
   Workbox — that precaches the app shell and keeps the pixel typeface in a
   stale-while-revalidate cache. Bump `CACHE` in it to ship an update.
@@ -241,17 +250,22 @@ loop with synthetic timestamps. `test/smoke.mjs` uses that to check the
 physics, scoring, collisions, power-ups, unlocks and mobile layout:
 
 ```
-npm i -D playwright && npx playwright install chromium
-node test/smoke.mjs      # 15 gameplay checks
-node test/pwa.mjs        # installability + a real offline run
-node test/profiles.mjs   # 20 storage, profile and import/export checks
-node test/cosmetics.mjs  # 15 economy, shop and rendering checks
-node test/determinism.mjs # 12 seeded-run and background checks
-node test/comfort.mjs    # 16 haptics, pause and assist checks
-node test/dynamics.mjs   # 16 formation and hazard checks
-node test/progression.mjs # 23 XP, trait and perk checks
-node test/make-icons.mjs # regenerate the app icons
+npm install && npx playwright install chromium
+npm test                     # every suite, one verdict
+
+npm run test:smoke           # 18  gameplay
+npm run test:pwa             # 12  installability, offline, font-hang
+npm run test:profiles        # 28  storage, profiles, import/export
+npm run test:cosmetics       # 15  economy, shop, rendering
+npm run test:determinism     # 12  seeded runs and backgrounds
+npm run test:comfort         # 16  haptics, pause, assist
+npm run test:dynamics        # 16  formations and hazards
+npm run test:progression     # 28  XP, traits and perks
+npm run test:crash           #  9  crash survival
+npm run icons                #     regenerate the app icons
 ```
+
+154 checks in total.
 
 `smoke.mjs` drops screenshots of each game state into `test/shots/`.
 `pwa.mjs` serves the repo on localhost, waits for the service worker to take
@@ -265,8 +279,16 @@ catalogue for malformed art and duplicate ownership keys, drives real runs to
 verify what they pay, and screenshots the same frame with and without
 cosmetics equipped to prove they reach the canvas.
 
-`.github/workflows/pages.yml` deploys `index.html`, the manifest, the service
-worker and the icons to GitHub Pages on every push.
+`.github/workflows/pages.yml` runs every suite as a parallel matrix on each
+push and **only then** deploys — the `deploy` job declares `needs: test`, so
+publishing is impossible while anything is red. Tests run on every branch;
+deployment stays restricted to `main`.
+
+`crash.mjs` covers the failure path: a frozen canvas is the worst outcome
+because it looks like a hang and tells nobody anything. One bad frame is
+skipped and the game carries on; a persistent one stops and paints what
+actually went wrong; and the profile is written to storage before either.
+Losing a crash is annoying — losing the runs that led to it is worse.
 
 ---
 

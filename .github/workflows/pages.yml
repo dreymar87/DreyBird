@@ -3,9 +3,10 @@ name: Deploy to GitHub Pages
 # The github-pages environment only accepts deployments from the default
 # branch, so this deploys from main. Pushes to other branches are rejected
 # before the job starts, which produces a failed run with no logs.
+# Tests run on every branch. Deploying stays restricted to main, and now
+# cannot happen at all while anything is red.
 on:
   push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -19,7 +20,44 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # One job per suite. Run in sequence they take about fifteen minutes;
+  # in parallel the wall clock is the slowest single suite.
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false          # one red suite should not hide the others
+      matrix:
+        suite: [smoke, pwa, profiles, cosmetics, determinism, comfort, dynamics, progression, crash]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Cache the browser
+        id: browser-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - run: npx playwright install --with-deps chromium
+        if: steps.browser-cache.outputs.cache-hit != 'true'
+
+      - run: npx playwright install-deps chromium
+        if: steps.browser-cache.outputs.cache-hit == 'true'
+
+      - name: ${{ matrix.suite }}
+        run: npm run test:${{ matrix.suite }}
+
   deploy:
+    # The whole point: publishing is impossible while a suite is failing.
+    needs: test
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

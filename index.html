@@ -12,7 +12,11 @@
 <link rel="icon" href="icons/icon-192.png" type="image/png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chivo:wght@400;700&family=Press+Start+2P&display=swap">
+<!-- media="print" keeps this off the parser's critical path: a pending
+     stylesheet blocks the scripts that follow it, and the typeface is
+     optional. The script below promotes it to all once it has loaded. -->
+<link id="typeface" rel="stylesheet" media="print"
+      href="https://fonts.googleapis.com/css2?family=Chivo:wght@400;700&family=Press+Start+2P&display=swap">
 
 <style>
   :root {
@@ -121,6 +125,9 @@
   #btn-gear { left: 112px; }
   #btn-sound { right: 8px; }
   #stage[data-playing="1"] .iconbtn { opacity: .18; pointer-events: none; }
+  /* Once it has crashed none of these do anything, so stop offering them. */
+  #stage[data-crashed="1"] .iconbtn { display: none; }
+  #stage[data-crashed="1"] canvas { cursor: default; }
   /* The pause control is the exception: it exists only while playing, and
      stays live while the others fade out. */
   #btn-pause { right: 60px; display: none; }
@@ -539,6 +546,15 @@
 <script>
 (() => {
   'use strict';
+
+  // The typeface loads off the critical path; adopt it once it arrives.
+  // If it never does, the fallback stack is already in use and nothing
+  // waits for it.
+  const typeface = document.getElementById('typeface');
+  if (typeface) {
+    if (typeface.sheet) typeface.media = 'all';
+    else typeface.addEventListener('load', () => { typeface.media = 'all'; }, { once: true });
+  }
 
   /* ══════════════════════════════════════════════════════════════════
      DreyBird — a one-file tribute to Flappy Bird.
@@ -2165,6 +2181,9 @@
   let acc = 0, last = 0, started = false;
 
   function frame(now) {
+    // Fault injection for the crash suite. One comparison a frame, and it
+    // is the only honest way to test that a real throw is survivable.
+    if (window.__breakFrames > 0) { window.__breakFrames--; throw new Error('injected frame fault'); }
     if (!started) { last = now; started = true; }
     let delta = now - last;
     last = now;
@@ -2175,7 +2194,81 @@
     render(clamp(acc / DT, 0, 1));
   }
 
-  function loop(now) { frame(now); requestAnimationFrame(loop); }
+  /* ── surviving, and admitting to, a crash ─────────────────────────
+     A frozen canvas is the worst possible failure: it looks like a hang,
+     tells the player nothing, and gives them nothing to report back. So
+     one bad frame is survivable, a persistently bad one stops and says
+     what happened, and either way the profile is written first — losing
+     a crash is annoying, losing the runs that led to it is worse. */
+  const CRASH_LIMIT = 8;
+  let crashCount = 0;
+  let crashed = null;
+
+  function noteCrash(err) {
+    const msg = (err && (err.message || err.toString())) || 'Unknown error';
+    try { saveProfile(); } catch (e) { /* nothing left to try */ }
+    return msg;
+  }
+
+  function paintCrash() {
+    try {
+      ctx.setTransform(RS, 0, 0, RS, 0, 0);
+      ctx.fillStyle = '#1a1420';
+      ctx.fillRect(0, 0, W, H);
+      textOut(ctx, 'OH DEAR', W / 2, 168, 16, '#ffd166', '#20160a');
+      textOut(ctx, 'DreyBird hit a problem', W / 2, 200, 7, '#ffffff', '#20160a');
+      textOut(ctx, 'Your progress was saved.', W / 2, 216, 7, '#9fd8ff', '#20160a');
+
+      // The player is the only person who can tell me what happened, so
+      // show the actual error rather than a generic apology.
+      const words = String(crashed || '').slice(0, 160).split(/\s+/);
+      let line = '', y = 250;
+      px(ctx, 6);
+      for (const word of words) {
+        const next = line ? line + ' ' + word : word;
+        if (ctx.measureText(next).width > W - 32 && line) {
+          textOut(ctx, line, W / 2, y, 6, '#c9b6d8', '#20160a');
+          y += 11; line = word;
+          if (y > 330) break;
+        } else line = next;
+      }
+      if (line && y <= 330) textOut(ctx, line, W / 2, y, 6, '#c9b6d8', '#20160a');
+
+      textOut(ctx, 'TAP TO RELOAD', W / 2, 366, 8, '#ffffff', '#20160a');
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      stage.dataset.crashed = '1';
+    } catch (e) { /* if even this fails, there is nothing further to do */ }
+  }
+
+  function loop(now) {
+    if (crashed) return;                 // stopped, and the screen says so
+    try {
+      frame(now);
+      if (crashCount > 0) crashCount--;  // recovered; forgive the earlier one
+    } catch (err) {
+      const msg = noteCrash(err);
+      if (++crashCount >= CRASH_LIMIT) {
+        crashed = msg;
+        paintCrash();
+        return;
+      }
+      // A single bad frame is survivable: skip it and carry on.
+    }
+    requestAnimationFrame(loop);
+  }
+
+  // Anything thrown outside the loop lands here — and the profile goes to
+  // storage before we do anything else with it.
+  addEventListener('error', e => {
+    if (crashed) return;
+    crashed = noteCrash(e.error || (e.message ? { message: e.message } : null));
+    paintCrash();
+  });
+  addEventListener('unhandledrejection', e => {
+    if (crashed) return;
+    crashed = noteCrash(e.reason);
+    paintCrash();
+  });
 
   /* ══════════════════ input ══════════════════ */
 
@@ -2193,6 +2286,14 @@
   }
 
   function press() {
+    // After a crash the only useful action is starting over, so give the
+    // tap somewhere to go rather than printing an instruction at someone.
+    //
+    // Deferred out of the pointer handler on purpose: reloading synchronously
+    // from inside the event wedges the navigation and leaves the document
+    // stuck parsing forever — a hang, which is the very thing this screen
+    // exists to avoid.
+    if (crashed) { setTimeout(() => location.reload(), 0); return; }
     if (!sheet.hidden || !playersSheet.hidden || !settingsSheet.hidden || !pausedSheet.hidden) return;
     audio.ensure();
     askPersist();
@@ -3138,6 +3239,8 @@
       active: () => profile,
       createProfile, switchProfile, deleteProfile, exportSave, importSave,
       saveState, fingerprint, markSaved, refreshSaveButton,
+      crashInfo: () => ({ crashed: crashed, count: crashCount }),
+      breakFrame: n => { window.__breakFrames = n; },
       saveButtonText: () => document.getElementById('player-export').textContent,
       // shop
       SKINS, HATS, TRAILS, WORLDS,
