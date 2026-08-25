@@ -121,8 +121,22 @@ by good intentions: every non-baseline bird must be better at something
 *and* worse at something, or the suite fails.
 
 **Perks** ("feathers") unlock with level and equip into slots that open at
-levels 5, 15 and 30. They're mild global modifiers — a coin bonus, longer
-power-ups, an extra shield hit.
+levels **4, 12 and 22**. They're mild global modifiers — a coin bonus,
+longer power-ups, an extra shield hit:
+
+| Perk | Level | What it does |
+| --- | --- | --- |
+| Thrift | 4 | Every pipe pays a little more |
+| Study | 6 | Runs teach you faster |
+| Updraft | 9 | The air holds you up a touch |
+| Slipstream | 12 | A slightly finer profile |
+| Reservoir | 16 | Power-ups run longer |
+| Plating | 20 | Shields take an extra hit |
+
+Every perk unlocks at a level where a slot already exists to hold it, so
+nothing is ever shown as available while being unusable. The Perks tab
+tells you where the next slot is (`LV 7 · 1/1 SLOTS · NEXT AT 12`), and a
+card with nowhere to go says which level frees one.
 
 Traits and perks change **the bird, never the world**. Pipe layout, gap
 width, speed and hazards come from the seed alone, so two people on the

@@ -1120,14 +1120,19 @@
      which is why they exist as their own list rather than being folded
      into the birds. */
   const FEATHERS = [
-    { id: 'thrift',  name: 'Thrift',   need: 1,  hue: ['#f5c33b', '#c99114'], traits: { coin: 1.12 },   blurb: 'Every pipe pays a little more' },
-    { id: 'study',   name: 'Study',    need: 3,  hue: ['#8fd8ff', '#3f7fd6'], traits: { xp: 1.15 },     blurb: 'Runs teach you faster' },
-    { id: 'lift',    name: 'Updraft',  need: 8,  hue: ['#cdefff', '#7fb8d8'], traits: { gravity: 0.95 }, blurb: 'The air holds you up a touch' },
+    { id: 'thrift',  name: 'Thrift',   need: 4,  hue: ['#f5c33b', '#c99114'], traits: { coin: 1.12 },   blurb: 'Every pipe pays a little more' },
+    { id: 'study',   name: 'Study',    need: 6,  hue: ['#8fd8ff', '#3f7fd6'], traits: { xp: 1.15 },     blurb: 'Runs teach you faster' },
+    { id: 'lift',    name: 'Updraft',  need: 9,  hue: ['#cdefff', '#7fb8d8'], traits: { gravity: 0.95 }, blurb: 'The air holds you up a touch' },
     { id: 'slim',    name: 'Slipstream', need: 12, hue: ['#a6e9b4', '#43b596'], traits: { hit: 0.94 },  blurb: 'A slightly finer profile' },
-    { id: 'charge',  name: 'Reservoir', need: 18, hue: ['#c9a0ff', '#8a5ad0'], traits: { power: 1.25 }, blurb: 'Power-ups run longer' },
-    { id: 'plate',   name: 'Plating',  need: 26, hue: ['#e0e6ee', '#8b8f9c'], traits: { shieldHits: 2 }, blurb: 'Shields take an extra hit' }
+    { id: 'charge',  name: 'Reservoir', need: 16, hue: ['#c9a0ff', '#8a5ad0'], traits: { power: 1.25 }, blurb: 'Power-ups run longer' },
+    { id: 'plate',   name: 'Plating',  need: 20, hue: ['#e0e6ee', '#8b8f9c'], traits: { shieldHits: 2 }, blurb: 'Shields take an extra hit' }
   ];
-  const SLOT_LEVELS = [5, 15, 30];        // level at which each slot opens
+  /* Slots open earlier than they used to. The third sat at 30 — roughly
+     212 runs for a middling player — and Plating unlocked at 26, so the
+     most interesting perk was gated behind the grind rather than being
+     part of it. Every perk now unlocks at or before a slot that can hold
+     it, which a test enforces. */
+  const SLOT_LEVELS = [4, 12, 22];        // level at which each slot opens
   const slotsAt = lvl => SLOT_LEVELS.filter(n => lvl >= n).length;
 
   /* Everything the bird is, combined: its innate traits plus whatever
@@ -2348,9 +2353,16 @@
       if (lvl < item.need) return { text: 'Unlocks at level ' + item.need, cls: 'price short' };
       if (equipped(tab, item)) return { text: 'Equipped — ' + item.blurb, cls: 'req' };
       const free = slotsAt(lvl) - (profile ? (profile.feathers || []).length : 0);
-      return free > 0
-        ? { text: item.blurb, cls: 'req' }
-        : { text: 'No free slot — ' + item.blurb, cls: 'price short' };
+      if (free > 0) return { text: item.blurb, cls: 'req' };
+      // "No free slot" without saying when one opens is why this had to
+      // be asked out loud in the first place.
+      const next = SLOT_LEVELS.find(n => lvl < n);
+      return {
+        text: next
+          ? 'Slot ' + (slotsAt(lvl) + 1) + ' opens at level ' + next + ' — ' + item.blurb
+          : 'All slots full — ' + item.blurb,
+        cls: 'price short'
+      };
     }
     if (item.need != null && !available(item)) return { text: 'Reach a best of ' + item.need, cls: 'req' };
     if (!owns(item)) {
@@ -2375,8 +2387,10 @@
     if (wallet) {
       const lvl = profile ? levelFor(profile.xp) : 1;
       const used = profile ? (profile.feathers || []).length : 0;
+      const next = SLOT_LEVELS.find(n => lvl < n);
       wallet.textContent = shopKind === 'feather'
-        ? 'LV ' + lvl + '  ·  ' + used + '/' + slotsAt(lvl) + ' SLOTS'
+        ? 'LV ' + lvl + '  ·  ' + used + '/' + slotsAt(lvl) + ' SLOTS' +
+          (next ? '  ·  NEXT AT ' + next : '')
         : String(profile ? profile.coins : 0);
     }
     const coinDot = document.querySelector('.wallet .coin');

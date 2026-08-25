@@ -230,25 +230,25 @@ async function fresh() {
     p.xp = 0;                                       // level 1
     const lowLevel = (() => { d.equip('feather', 'lift'); return p.feathers.slice(); })();
 
-    p.xp = d.xpForLevel(6);                         // one slot
+    p.xp = d.xpForLevel(5);                         // one slot
     d.equip('feather', 'thrift');
     const oneSlot = p.feathers.slice();
     d.equip('feather', 'study');                    // no free slot
     const stillOne = p.feathers.slice();
 
-    p.xp = d.xpForLevel(16);                        // two slots
+    p.xp = d.xpForLevel(13);                        // two slots
     d.equip('feather', 'study');
     const twoSlots = p.feathers.slice();
 
     d.equip('feather', 'thrift');                   // toggles off
     const removed = p.feathers.slice();
 
-    p.xp = d.xpForLevel(16);
+    p.xp = d.xpForLevel(13);
     const tooHigh = (() => { d.equip('feather', 'plate'); return p.feathers.indexOf('plate') >= 0; })();
     return { lowLevel, oneSlot, stillOne, twoSlots, removed, tooHigh,
              slotsAt1: d.slotsAt(1), slotsAt5: d.slotsAt(5), slotsAt30: d.slotsAt(30) };
   });
-  check('no slots before level 5, then one, then three by level 30',
+  check('no slots before level 4, then one, then all three by 22',
     slots.slotsAt1 === 0 && slots.slotsAt5 === 1 && slots.slotsAt30 === 3, JSON.stringify(slots));
   check('a perk cannot be equipped with no slot open', slots.lowLevel.length === 0);
   check('a second perk is refused while only one slot is open',
@@ -257,10 +257,61 @@ async function fresh() {
   check('tapping an equipped perk takes it off', slots.removed.length === 1, JSON.stringify(slots.removed));
   check('a perk above your level cannot be equipped at all', slots.tooHigh === false);
 
+  // The invariant that would have caught Plating unlocking at 26 with the
+  // slot that could pair it arriving at 30 — and that caught two more of
+  // my own numbers when this ladder was retuned.
+  const ladder = await page.evaluate(() => {
+    const d = __dreybird;
+    return d.FEATHERS.map(f => ({ id: f.id, need: f.need, slots: d.slotsAt(f.need) }));
+  });
+  check('every perk has somewhere to go the moment it unlocks',
+    ladder.every(f => f.slots >= 1),
+    JSON.stringify(ladder.filter(f => f.slots < 1)) || ladder.map(f => f.id + '@' + f.need).join(' '));
+
+  const header = await page.evaluate(() => {
+    const d = __dreybird;
+    const read = lvl => {
+      d.active().xp = d.xpForLevel(lvl);
+      d.setTab('feather');
+      return document.getElementById('wallet').textContent;
+    };
+    return { early: read(7), mid: read(13), capped: read(24) };
+  });
+  check('the header says where the next slot is, until there are none left',
+    /NEXT AT 12/.test(header.early) && /NEXT AT 22/.test(header.mid) && !/NEXT AT/.test(header.capped),
+    JSON.stringify(header));
+
+  const cardCopy = await page.evaluate(() => {
+    const d = __dreybird;
+    const p = d.active();
+    p.xp = d.xpForLevel(7);                  // one slot, and fill it
+    p.feathers = [];
+    d.equip('feather', 'thrift');
+    d.setTab('feather');
+    const texts = [...document.querySelectorAll('#skin-list .card')].map(c => c.textContent);
+    return {
+      full: texts.find(t => /Study/.test(t)) || '',
+      locked: texts.find(t => /Plating/.test(t)) || ''
+    };
+  });
+  check('a card with no free slot says which level opens the next one',
+    /Slot 2 opens at level 12/.test(cardCopy.full), cardCopy.full);
+  check('and a still-locked perk keeps saying when it unlocks',
+    /Unlocks at level 20/.test(cardCopy.locked), cardCopy.locked);
+
+  // Thresholds only ever moved down, so nobody may lose a slot they had.
+  const noDemotion = await page.evaluate(() => {
+    const d = __dreybird;
+    return { atOld15: d.slotsAt(15), atOld30: d.slotsAt(30), atOld5: d.slotsAt(5) };
+  });
+  check('nobody is demoted by the retune',
+    noDemotion.atOld5 >= 1 && noDemotion.atOld15 >= 2 && noDemotion.atOld30 === 3,
+    JSON.stringify(noDemotion));
+
   const stacked = await page.evaluate(() => {
     const d = __dreybird;
     const p = d.active();
-    p.xp = d.xpForLevel(31);
+    p.xp = d.xpForLevel(23);
     p.feathers = [];
     d.equip('bird', 'classic');
     const bare = d.traitsNow().coin;
@@ -283,7 +334,7 @@ async function fresh() {
   await page.evaluate(async () => {
     const d = __dreybird;
     const p = d.active();
-    p.xp = d.xpForLevel(16);
+    p.xp = d.xpForLevel(13);
     p.feathers = [];
     d.equip('feather', 'thrift');
     d.equip('feather', 'study');
@@ -297,7 +348,7 @@ async function fresh() {
              live: d.equippedFeathers().map(f => f.id) };
   });
   check('XP, level and equipped perks survive a reload',
-    kept.level === 16 && kept.feathers.length === 2 && kept.live.length === 2, JSON.stringify(kept));
+    kept.level === 13 && kept.feathers.length === 2 && kept.live.length === 2, JSON.stringify(kept));
   await context.close();
 }
 {
