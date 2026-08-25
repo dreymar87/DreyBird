@@ -800,12 +800,14 @@
       world: 'meadow',
       bg: 'cycle',           // 'cycle', or the index of a phase to hold
       haptics: false,
+      music: false,
       assist: false,
       coins: 0,
       xp: 0,
       feathers: [],
       owned: [],
       granted: false,        // back-pay for play from before the shop existed
+      taught: false,         // has this player finished a run yet?
       best: 0,
       created: Date.now(),
       stats: { games: 0, pipes: 0, longest: 0, powers: 0, bronze: 0, silver: 0, gold: 0, platinum: 0 }
@@ -827,12 +829,14 @@
       world: typeof p.world === 'string' ? p.world : 'meadow',
       bg: (typeof p.bg === 'number' && p.bg >= 0) || p.bg === 'cycle' ? p.bg : 'cycle',
       haptics: p.haptics === true,
+      music: p.music === true,
       assist: p.assist === true,
       coins: num(p.coins, 0),
       xp: num(p.xp, 0),
       feathers: Array.isArray(p.feathers) ? p.feathers.filter(x => typeof x === 'string') : [],
       owned: Array.isArray(p.owned) ? p.owned.filter(x => typeof x === 'string') : [],
       granted: p.granted === true,
+      taught: p.taught === true,
       best: num(p.best, 0),
       created: num(p.created, d.created),
       stats: {
@@ -1274,6 +1278,76 @@
     try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (e) { /* not our problem */ }
   }
 
+  /* ── music ────────────────────────────────────────────────────────
+     A slow pentatonic arpeggio over a soft bass, built from the same
+     oscillators as the sound effects. Pentatonic because every note in it
+     agrees with every other, so a loop cannot land on a sour interval.
+
+     Default OFF, with its own toggle. I wrote this without being able to
+     hear it, and unexpected music you did not ask for is worse than
+     silence you can switch out of. */
+  const SCALE = [0, 2, 4, 7, 9];                    // major pentatonic
+  const ROOTS = [220, 196, 246.94, 174.61];         // A3, G3, B3, F3
+  const STEP_MS = 260;
+
+  const music = {
+    on: false,
+    timer: 0,
+    step: 0,
+    gain: null,
+
+    start() {
+      if (this.timer || !this.on) return;
+      audio.ensure();
+      if (!audio.ctx) return;
+      this.gain = audio.ctx.createGain();
+      this.gain.gain.value = 0.05;                  // quiet: it sits under play
+      this.gain.connect(audio.ctx.destination);
+      this.step = 0;
+      this.timer = setInterval(() => this.beat(), STEP_MS);
+    },
+
+    stop() {
+      if (this.timer) clearInterval(this.timer);
+      this.timer = 0;
+      if (this.gain) { try { this.gain.disconnect(); } catch (e) { /* already gone */ } }
+      this.gain = null;
+    },
+
+    note(freq, dur, type, vol) {
+      const c = audio.ctx;
+      if (!c || !this.gain) return;
+      const t0 = c.currentTime;
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(freq, t0);
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(vol, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      o.connect(g).connect(this.gain);
+      o.start(t0);
+      o.stop(t0 + dur + 0.02);
+    },
+
+    beat() {
+      if (!this.on || audio.muted || !audio.ctx) return;
+      // The chord changes every eight steps, so the loop wanders rather
+      // than repeating a single bar forever.
+      const bar = Math.floor(this.step / 8) % ROOTS.length;
+      const root = ROOTS[bar];
+      const semis = SCALE[this.step % SCALE.length];
+      const up = Math.floor((this.step % 8) / SCALE.length);
+      this.note(root * Math.pow(2, (semis + up * 12) / 12), 0.22, 'triangle', 0.5);
+      if (this.step % 8 === 0) this.note(root / 2, 0.7, 'sine', 0.6);
+      this.step++;
+    },
+
+    set(v) {
+      this.on = v;
+      if (v) this.start(); else this.stop();
+    }
+  };
+
   /* ── world state ────────────────────────────────────────────────── */
   const READY = 0, PLAYING = 1, DYING = 2, OVER = 3;
 
@@ -1313,6 +1387,7 @@
     coinMul: 1,
     xpMul: 1,
     paused: false,
+    hitStop: 0,
     runAssist: false,
     pipeIndex: 0,
     pattern: null,
@@ -1359,6 +1434,7 @@
     G.ticks = 0;
     G.flash = 0;
     G.shake = 0;
+    G.hitStop = 0;
     G.shield = 0;
     G.slow = 0;
     G.invuln = 0;
@@ -1476,6 +1552,7 @@
     // Physics are fixed for the whole run, here, once.
     G.runAssist = !!(profile && profile.assist);
     G.paused = false;
+    G.hitStop = 0;
     G.pipeIndex = 0;
     G.pattern = null;
     G.patStep = 0;
@@ -1514,6 +1591,9 @@
 
   function die(fromPipe) {
     G.state = DYING;
+    // A few frames of stillness at the moment of impact. Cheap, and it is
+    // most of what makes a collision feel like one.
+    G.hitStop = reduceMotion ? 0 : 7;
     bird.vy = Math.min(bird.vy, -2.4);
     G.flash = reduceMotion ? 0 : 1;
     G.shake = reduceMotion ? 0 : 9;
@@ -1541,6 +1621,7 @@
     if (!profile) return;
     const st = profile.stats;
     st.games++;
+    profile.taught = true;          // one finished run is the whole tutorial
     st.longest = Math.max(st.longest, G.runTicks);
     if (!G.runAssist && G.score > profile.best) profile.best = G.score;
     const m = medalFor(G.score);
@@ -1578,6 +1659,7 @@
 
   function tick() {
     if (G.paused) return;      // the loop keeps rendering; the world stops
+    if (G.hitStop > 0) { G.hitStop--; return; }
     G.ticks++;
     const ts = G.slow > 0 && G.state === PLAYING ? SLOWMO : 1;
 
@@ -1628,6 +1710,7 @@
           G.score++;
           if (profile) profile.stats.pipes++;
           earn(COIN_PIPE);
+          puff(p.x + PIPE_W / 2, bird.y, '#ffe9a8', 5);
           audio.score();
         }
       }
@@ -1832,6 +1915,27 @@
     ctx.fill();
     ctx.restore();
 
+    // A far ridge, drifting at an eighth of the speed. Depth comes from
+    // things moving at different rates, not from more things.
+    const fo = (G.scroll * 0.11) % 96;
+    ctx.save();
+    ctx.globalAlpha = 0.32;
+    ctx.fillStyle = ph.city;
+    for (let i = -1; i < 5; i++) {
+      const x = i * 96 - fo;
+      ctx.beginPath();
+      ctx.moveTo(x, GY - 30);
+      ctx.lineTo(x + 30, GY - 74);
+      ctx.lineTo(x + 54, GY - 44);
+      ctx.lineTo(x + 78, GY - 82);
+      ctx.lineTo(x + 96, GY - 34);
+      ctx.lineTo(x + 96, GY);
+      ctx.lineTo(x, GY);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+
     // Skyline, parallax at a quarter speed.
     const bo = (G.scroll * 0.25) % 38;
     for (const b of buildings) {
@@ -1930,6 +2034,16 @@
     for (let x = -24; x < W + 24; x += 24) ctx.fillRect(Math.round(x - o), GY + 16, 12, 4);
     ctx.fillStyle = 'rgba(255,255,255,.16)';
     for (let x = -24; x < W + 24; x += 24) ctx.fillRect(Math.round(x - o + 12), GY + 26, 8, 3);
+
+    // Foreground tufts, slightly faster than the ground itself.
+    const to = (G.scroll * 1.15) % 64;
+    ctx.fillStyle = ph.grass;
+    for (let x = -64; x < W + 64; x += 64) {
+      const bx = Math.round(x - to);
+      ctx.fillRect(bx, GY - 4, 3, 6);
+      ctx.fillRect(bx + 4, GY - 7, 3, 9);
+      ctx.fillRect(bx + 8, GY - 3, 3, 5);
+    }
   }
 
   /* A gust you cannot see coming is unfair rather than hard, so it is
@@ -2041,11 +2155,21 @@
   }
 
   function drawReady() {
-    textOut(ctx, 'DreyBird', W / 2, 128, 22, '#ffe07a', '#20160a');
-    textOut(ctx, 'A FLAPPY TRIBUTE', W / 2, 158, 7, '#ffffff', '#20160a');
+    // The title breathes rather than sitting dead on the screen.
+    const lift = reduceMotion ? 0 : Math.sin(G.ticks / 34) * 3;
+    textOut(ctx, 'DreyBird', W / 2, 128 + lift, 22, '#ffe07a', '#20160a');
+    textOut(ctx, 'A FLAPPY TRIBUTE', W / 2, 158 + lift * 0.5, 7, '#ffffff', '#20160a');
     if (Math.floor(G.ticks / 26) % 2 === 0) {
       textOut(ctx, 'TAP TO FLAP', W / 2, 316, 11, '#ffffff', '#20160a');
     }
+
+    // Nobody should have to guess at the rules on their first go. One
+    // line, below the prompt, where it cannot sit on top of the bird —
+    // the first version put a panel straight through it.
+    if (profile && !profile.taught) {
+      textOut(ctx, 'EACH TAP LIFTS YOU. MIND THE GAPS.', W / 2, 336, 6, '#cdefff', '#20160a');
+    }
+
     textOut(ctx, 'BEST  ' + G.best, W / 2, 356, 8, '#ffe07a', '#20160a');
     if (profile) {
       textOut(ctx, profile.name.toUpperCase(), W / 2, 176, 7, '#d8f2ff', '#20160a');
@@ -2206,6 +2330,7 @@
 
   function noteCrash(err) {
     const msg = (err && (err.message || err.toString())) || 'Unknown error';
+    try { music.stop(); } catch (e) { /* going down anyway */ }
     try { saveProfile(); } catch (e) { /* nothing left to try */ }
     return msg;
   }
@@ -2296,6 +2421,7 @@
     if (crashed) { setTimeout(() => location.reload(), 0); return; }
     if (!sheet.hidden || !playersSheet.hidden || !settingsSheet.hidden || !pausedSheet.hidden) return;
     audio.ensure();
+    if (music.on && !audio.muted) music.start();
     askPersist();
     if (G.state === READY) { startPlay(); flap(); }
     else if (G.state === PLAYING) flap();
@@ -2560,6 +2686,7 @@
   function setMuted(v) {
     audio.muted = v;
     store.set('muted', v);
+    music.set(!v && !!(profile && profile.music));
     btnSound.setAttribute('aria-pressed', String(v));
     btnSound.setAttribute('aria-label', v ? 'Unmute sound' : 'Mute sound');
     if (!v) { audio.ensure(); audio.score(); }
@@ -2651,6 +2778,18 @@
     settingsList.appendChild(toggleRow(
       'Sound', audio.muted ? 'Off' : 'On', !audio.muted, () => {
         setMuted(!audio.muted);
+        buildSettings();
+      }));
+
+    settingsList.appendChild(toggleRow(
+      'Music',
+      profile && profile.music ? 'A slow loop under the game' : 'Off',
+      !!(profile && profile.music),
+      () => {
+        if (!profile) return;
+        profile.music = !profile.music;
+        saveProfile();
+        music.set(profile.music && !audio.muted);
         buildSettings();
       }));
 
@@ -3214,6 +3353,7 @@
     buildPlayers();
     buildSettings();
     refreshSaveButton();
+    music.on = !!(profile && profile.music);
     updateStorageNote();
     resetWorld();
 
@@ -3240,6 +3380,7 @@
       createProfile, switchProfile, deleteProfile, exportSave, importSave,
       saveState, fingerprint, markSaved, refreshSaveButton,
       crashInfo: () => ({ crashed: crashed, count: crashCount }),
+      music,
       breakFrame: n => { window.__breakFrames = n; },
       saveButtonText: () => document.getElementById('player-export').textContent,
       // shop

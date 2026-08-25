@@ -144,6 +144,25 @@ same seed fly the same world whatever they've equipped. That's what makes
 a shared daily challenge possible later, and a test asserts it across all
 twelve birds.
 
+## Feel
+
+A collision freezes the world for seven frames before the fall begins —
+cheap, and most of what makes an impact land. The world has depth: a far
+ridge drifts at a tenth of the scroll speed, the skyline at a quarter,
+clouds at a half, and grass tufts in front of the ground move faster than
+the ground itself. Clearing a pipe throws a small spark. The title
+breathes on the start screen. All of it respects `prefers-reduced-motion`,
+where the freeze is skipped entirely.
+
+**Music** is a slow pentatonic arpeggio over a soft bass, built from the
+same oscillators as the sound effects — pentatonic because every note in
+it agrees with every other, so a loop can't land on a sour interval. It is
+**off by default**, with its own toggle in Settings, and muting the game
+silences it too.
+
+New players get one line of guidance under the prompt, which disappears
+for good once they finish a run.
+
 ## Comfort
 
 Settings (the gear, top-left) also holds:
@@ -262,10 +281,11 @@ npm run test:comfort         # 16  haptics, pause, assist
 npm run test:dynamics        # 16  formations and hazards
 npm run test:progression     # 28  XP, traits and perks
 npm run test:crash           #  9  crash survival
+npm run test:polish          # 10  juice, music, tutorial
 npm run icons                #     regenerate the app icons
 ```
 
-154 checks in total.
+164 checks in total.
 
 `smoke.mjs` drops screenshots of each game state into `test/shots/`.
 `pwa.mjs` serves the repo on localhost, waits for the service worker to take
