@@ -298,6 +298,63 @@ async function fresh(init) {
   await context.close();
 }
 
+// --- knowing whether the file on disk is current -----------------------
+{
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  page.on('pageerror', e => errors.push(String(e)));
+  await page.goto(ORIGIN);
+  await page.waitForFunction(() => !!window.__dreybird);
+
+  const flow = await page.evaluate(async () => {
+    const d = __dreybird;
+    const never = d.saveState().state;
+    const neverText = d.saveButtonText();
+
+    d.markSaved(d.saveState().print);              // stands in for a real save
+    const afterSave = d.saveState();
+    const savedText = d.saveButtonText();
+
+    d.resetWorld(); d.startPlay(5); if (d.resumeRun) d.resumeRun();
+    d.G.score = 12; d.G.state = d.states.DYING; d.bird.y = 999;
+    for (let i = 0; i < 500 && d.G.state !== d.states.OVER; i++) d.tick();
+    const afterRun = d.saveState();
+    const staleText = d.saveButtonText();
+
+    d.markSaved(d.saveState().print);
+    const resaved = d.saveState().state;
+    await d.flush();
+    return { never, neverText, afterSave, savedText, afterRun, staleText, resaved };
+  });
+  check('a never-saved player says so', flow.never === 'never', flow.neverText);
+  check('saving flips it to up to date',
+    flow.afterSave.state === 'current' && /Saved/.test(flow.savedText), flow.savedText);
+  check('a finished run makes it stale, and counts the runs',
+    flow.afterRun.state === 'stale' && flow.afterRun.runs === 1 && /\(1\)/.test(flow.staleText),
+    JSON.stringify({ state: flow.afterRun.state, runs: flow.afterRun.runs, text: flow.staleText }));
+  check('saving again settles it', flow.resaved === 'current');
+
+  // The badge is worthless if it cries wolf, so a reload with nothing
+  // played must come back up to date.
+  await page.reload();
+  await page.waitForFunction(() => !!window.__dreybird);
+  const survived = await page.evaluate(() => ({ state: __dreybird.saveState().state, text: __dreybird.saveButtonText() }));
+  check('and a reload with nothing played is still up to date',
+    survived.state === 'current', JSON.stringify(survived));
+
+  const stable = await page.evaluate(() => {
+    const d = __dreybird;
+    const a = d.fingerprint(d.exportSave());
+    const b = d.fingerprint(d.exportSave());
+    d.active().coins += 1;
+    const c = d.fingerprint(d.exportSave());
+    return { a, b, c };
+  });
+  check('the fingerprint holds still for an identical save and moves when it changes',
+    stable.a === stable.b && stable.a !== stable.c, JSON.stringify(stable));
+  await context.close();
+}
+
 // --- IndexedDB blocked: the game must still run and still save ---------
 {
   const { context, page } = await fresh(() => {

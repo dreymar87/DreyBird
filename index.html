@@ -379,6 +379,9 @@
     letter-spacing: .06em;
   }
   .sheet-actions .sheet-btn { flex: 1; font-size: 8px; padding: 11px 4px; }
+  /* Saved is calm; anything else quietly asks for attention. */
+  .sheet-btn[data-state="current"] { border-color: rgba(90, 212, 111, .5); color: #a6e9b4; }
+  .sheet-btn[data-state="stale"] { border-color: rgba(245, 179, 45, .55); color: var(--accent); }
   .sheet-btn:hover { background: rgba(255, 255, 255, .18); }
   .sheet-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
@@ -721,6 +724,35 @@
     },
 
     setActive(id) { return this.enqueue(() => this.writeSetActive(id)); },
+
+    // Small odds and ends that belong to the device, not to a player.
+    setMeta(key, value) { return this.enqueue(() => this.writeSetMeta(key, value)); },
+
+    async writeSetMeta(key, value) {
+      if (this.kind === 'indexeddb') {
+        try {
+          const [meta] = this.tx(['meta'], 'readwrite');
+          await this.req(meta.put(value, key));
+          return;
+        } catch (e) { /* fall through */ }
+      }
+      if (this.kind === 'memory') return;
+      const state = this.lsRead() || { profiles: [], activeId: null };
+      state[key] = value;
+      this.lsWrite(state);
+    },
+
+    async getMeta(key) {
+      if (this.kind === 'indexeddb') {
+        try {
+          const [meta] = this.tx(['meta'], 'readonly');
+          return await this.req(meta.get(key));
+        } catch (e) { /* fall through */ }
+      }
+      if (this.kind === 'memory') return undefined;
+      const state = this.lsRead();
+      return state ? state[key] : undefined;
+    },
 
     async writeSetActive(id) {
       if (this.kind === 'indexeddb') {
@@ -1505,6 +1537,7 @@
 
     saveProfile();
     buildPlayers();
+    refreshSaveButton();
   }
 
   function puff(x, y, color, n) {
@@ -2777,6 +2810,51 @@
     return { app: 'dreybird', version: 1, exported: Date.now(), profiles: profiles.map(sane) };
   }
 
+  /* ── knowing whether the file on disk is current ──────────────────
+     This is change detection, not tamper detection. A hash computed in a
+     page anyone can read proves nothing about who wrote a file; it only
+     tells you whether what you have matches what you saved. That is the
+     actual problem — saving repeatedly because you cannot tell. */
+  function fingerprint(payload) {
+    const text = JSON.stringify(payload.profiles);
+    let h1 = 0x811c9dc5, h2 = 0x01000193;
+    for (let i = 0; i < text.length; i++) {
+      const c = text.charCodeAt(i);
+      h1 = Math.imul(h1 ^ c, 0x01000193);
+      h2 = Math.imul(h2 + c, 0x85ebca6b) ^ (h2 >>> 13);
+    }
+    return ((h1 >>> 0).toString(36) + (h2 >>> 0).toString(36));
+  }
+
+  let saveMark = null;      // { print, at, games } from the last file written
+
+  function saveState() {
+    const print = fingerprint(exportSave());
+    if (!saveMark) return { state: 'never', print };
+    if (saveMark.print === print) return { state: 'current', print, at: saveMark.at };
+    const runs = Math.max(0, totalGames() - (saveMark.games || 0));
+    return { state: 'stale', print, at: saveMark.at, runs };
+  }
+
+  const totalGames = () => profiles.reduce((n, p) => n + (p.stats ? p.stats.games : 0), 0);
+
+  function markSaved(print) {
+    saveMark = { print: print, at: Date.now(), games: totalGames() };
+    vault.setMeta('saveMark', JSON.parse(JSON.stringify(saveMark)));
+    refreshSaveButton();
+  }
+
+  function ago(ts) {
+    const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+    if (s < 60) return 'just now';
+    const m = Math.round(s / 60);
+    if (m < 60) return m + (m === 1 ? ' minute ago' : ' minutes ago');
+    const h = Math.round(m / 60);
+    if (h < 24) return h + (h === 1 ? ' hour ago' : ' hours ago');
+    const d = Math.round(h / 24);
+    return d + (d === 1 ? ' day ago' : ' days ago');
+  }
+
   function importSave(data) {
     if (!data || data.app !== 'dreybird' || !Array.isArray(data.profiles)) {
       return { ok: false, added: 0, merged: 0, reason: 'That file is not a DreyBird save.' };
@@ -2820,6 +2898,7 @@
   function openPlayers() {
     editingId = armedDelete = null;
     buildPlayers();
+    refreshSaveButton();
     updateStorageNote();
     askPersist();
     playersSheet.hidden = false;
@@ -2840,13 +2919,74 @@
   // Fall back to the clipboard, which works everywhere.
   const canDownload = window.top === window.self;
   const exportBtn = document.getElementById('player-export');
-  if (!canDownload) exportBtn.textContent = 'Copy save';
+
+  // A real overwrite, where the browser has the API for it. That is
+  // desktop Chromium; iOS Safari does not have it and Android Chrome
+  // very likely does not either, so this is feature-detected and the
+  // download path stays the honest default rather than a sad fallback.
+  const canPickFile = canDownload && typeof window.showSaveFilePicker === 'function';
+  let fileHandle = null;
+
+  function stamp() {
+    const d = new Date();
+    const p2 = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) +
+           '-' + p2(d.getHours()) + p2(d.getMinutes());
+  }
+
+  // The button says what is actually true, so there is no reason to save
+  // "just in case" — which is what produced the pile of copies.
+  function refreshSaveButton() {
+    if (!exportBtn) return;
+    if (!canDownload) { exportBtn.textContent = 'Copy save'; return; }
+    const st = saveState();
+    exportBtn.textContent =
+      st.state === 'current' ? 'Saved ✓' :
+      st.state === 'never' ? 'Save file' :
+      st.runs > 0 ? 'Save file (' + st.runs + ')' : 'Save file *';
+    exportBtn.title =
+      st.state === 'current' ? 'Up to date — saved ' + ago(st.at) :
+      st.state === 'never' ? 'This player has never been saved to a file' :
+      st.runs + (st.runs === 1 ? ' run' : ' runs') + ' since your last save, ' + ago(st.at);
+    exportBtn.dataset.state = st.state;
+  }
+
+  async function writeThroughHandle(text) {
+    try {
+      if (fileHandle) {
+        const perm = await fileHandle.queryPermission({ mode: 'readwrite' });
+        if (perm !== 'granted') {
+          const asked = await fileHandle.requestPermission({ mode: 'readwrite' });
+          if (asked !== 'granted') fileHandle = null;
+        }
+      }
+      if (!fileHandle) {
+        fileHandle = await window.showSaveFilePicker({
+          suggestedName: 'dreybird-' + stamp() + '.json',
+          types: [{ description: 'DreyBird save', accept: { 'application/json': ['.json'] } }]
+        });
+        vault.setMeta('fileHandle', fileHandle);
+      }
+      const w = await fileHandle.createWritable();
+      await w.write(text);
+      await w.close();
+      return fileHandle.name || 'your file';
+    } catch (e) {
+      if (e && e.name === 'AbortError') return null;      // picker dismissed
+      fileHandle = null;
+      throw e;
+    }
+  }
 
   exportBtn.addEventListener('click', async () => {
-    const text = JSON.stringify(exportSave(), null, 2);
+    const payload = exportSave();
+    const text = JSON.stringify(payload, null, 2);
+    const print = fingerprint(payload);
+
     if (!canDownload) {
       try {
         await navigator.clipboard.writeText(text);
+        markSaved(print);
         storageNote.textContent = 'Save copied to the clipboard. Paste it somewhere safe.';
         storageNote.className = 'hint';
       } catch (e) {
@@ -2855,14 +2995,36 @@
       }
       return;
     }
+
+    if (canPickFile) {
+      try {
+        const name = await writeThroughHandle(text);
+        if (name === null) return;                        // they changed their mind
+        markSaved(print);
+        storageNote.textContent = 'Saved over ' + name + '.';
+        storageNote.className = 'hint';
+        return;
+      } catch (e) {
+        storageNote.textContent = 'Could not write that file, so here is a download instead.';
+        storageNote.className = 'hint warn';
+        // and fall through to the download
+      }
+    }
+
+    // Dated, so copies are orderable instead of an anonymous (1), (2) pile.
     const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'dreybird-save.json';
+    a.download = 'dreybird-' + stamp() + '.json';
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+    markSaved(print);
+    if (!canPickFile) {
+      storageNote.textContent = 'Saved as ' + a.download + '. This browser cannot overwrite an existing file, so each save is a new one.';
+      storageNote.className = 'hint';
+    }
   });
 
   document.getElementById('player-import').addEventListener('click', () => fileInput.click());
@@ -2919,6 +3081,16 @@
     }
 
     applyProfile();
+
+    // What we last wrote to a file, and where, so the button can tell the
+    // truth on the very first frame rather than after the first save.
+    try {
+      const mark = await vault.getMeta('saveMark');
+      if (mark && typeof mark.print === 'string') saveMark = mark;
+      const handle = await vault.getMeta('fileHandle');
+      if (handle && typeof handle.createWritable === 'function') fileHandle = handle;
+    } catch (e) { /* a fresh install, or a store that cannot hold handles */ }
+
     try {
       if (navigator.storage && navigator.storage.persisted) persisted = await navigator.storage.persisted();
     } catch (e) { persisted = false; }
@@ -2926,6 +3098,7 @@
     buildSheet();
     buildPlayers();
     buildSettings();
+    refreshSaveButton();
     updateStorageNote();
     resetWorld();
 
@@ -2950,6 +3123,8 @@
       profiles: () => profiles,
       active: () => profile,
       createProfile, switchProfile, deleteProfile, exportSave, importSave,
+      saveState, fingerprint, markSaved, refreshSaveButton,
+      saveButtonText: () => document.getElementById('player-export').textContent,
       // shop
       SKINS, HATS, TRAILS, WORLDS,
       coins: () => (profile ? profile.coins : 0),

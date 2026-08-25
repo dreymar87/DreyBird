@@ -47,10 +47,27 @@ game is on your home screen, which is one more reason to install it.
 
 Two things make that safe:
 
-- **Save file** writes every player to `dreybird-save.json`.
+- **Save file** writes every player to a dated file. The button tells you
+  where you stand: **Saved ✓** when the copy you have is current,
+  **Save file (3)** when three runs have happened since. No more saving
+  "just in case" and ending up with `(1)`, `(2)`, `(3)`.
 - **Load file** reads one back, merging by player. On a conflict it keeps
   the *better* of each number, so importing an old backup can never lower a
-  best score or wipe a medal.
+  best score, wipe a medal or repossess something you bought.
+
+Where the browser supports it (desktop Chromium), DreyBird remembers the
+file you chose and writes back over it — a real overwrite. iOS Safari and
+Android Chrome don't offer that API, so there each save is a new dated
+file, and the button says so.
+
+**On security, honestly:** the save is plain JSON and the badge is a
+change detector, not a tamper detector. A hash computed in a page anyone
+can read proves nothing about who wrote a file. Your live save also sits
+in IndexedDB, editable from devtools in seconds. Making a save genuinely
+tamper-proof needs either a native app with private storage or a server
+that owns the data — neither of which a static page can be. DreyBird has
+no leaderboard and nothing at stake, so this is a deliberate trade rather
+than an oversight.
 
 Coins, purchases and scores live in IndexedDB, falling back to `localStorage` where
 IndexedDB is blocked (private windows, some embedded browsers). If you played
