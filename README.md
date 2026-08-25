@@ -52,10 +52,11 @@ Two things make that safe:
   the *better* of each number, so importing an old backup can never lower a
   best score or wipe a medal.
 
-Scores live in IndexedDB, falling back to `localStorage` automatically where
+Coins, purchases and scores live in IndexedDB, falling back to `localStorage` where
 IndexedDB is blocked (private windows, some embedded browsers). If you played
 an earlier version, your existing best score is migrated into the first
-player rather than lost.
+player rather than lost — and your pipes, power-ups and medals from before
+the shop existed are paid out in coins, once.
 
 ## How to play
 
@@ -78,9 +79,25 @@ bronze / silver / gold / platinum medals at 10, 20, 30 and 40 points.
 you fly. Stars come out, city windows light up, the ground cools off. It's
 cosmetic — it never changes the difficulty.
 
-**Five birds.** Classic is yours from the start; Bluebird, Ember, Ghost and
-Circuit unlock at a best score of 5, 15, 25 and 40. Pick one from the palette
-button in the top-left corner.
+**Coins and a shop.** Clearing a pipe pays 1 coin, a power-up 2, and
+finishing with a medal pays a bonus (bronze 5, silver 15, gold 30, platinum
+60). Spend them in the shop — the palette button in the top-left corner.
+
+**Thirty cosmetics**, in four kinds:
+
+- **12 birds.** Classic is yours from the start; Bluebird, Ember, Ghost and
+  Circuit still unlock at a best score of 5, 15, 25 and 40 — they were earned
+  before the shop existed, so they stay free. The other seven cost coins.
+- **6 hats** — ball cap, party hat, halo, crown, horns, top hat. Drawn on the
+  bird's head and leaning with the dive, independent of which bird you fly,
+  so the combinations multiply.
+- **5 flight trails** — sparks, bubbles, embers, frost, rainbow.
+- **4 world themes** beyond the default Meadow: Endless Sunset, Monochrome,
+  Neon Grid and Sakura, each repainting the pipes, sky and ground.
+
+Coins are earned by playing. There is no real money in DreyBird, nothing to
+buy with a card, and no server to check anything — the wallet lives in your
+own save file. Editing it only cheats you.
 
 **Two power-ups**, floating between pipes once you're past 4 points:
 
@@ -120,7 +137,8 @@ physics, scoring, collisions, power-ups, unlocks and mobile layout:
 npm i -D playwright && npx playwright install chromium
 node test/smoke.mjs      # 15 gameplay checks
 node test/pwa.mjs        # installability + a real offline run
-node test/profiles.mjs   # 19 storage, profile and import/export checks
+node test/profiles.mjs   # 20 storage, profile and import/export checks
+node test/cosmetics.mjs  # 15 economy, shop and rendering checks
 node test/make-icons.mjs # regenerate the app icons
 ```
 
@@ -131,7 +149,10 @@ on a tap and scores. `profiles.mjs` covers the storage layer: migration from
 the old single-player build, two players not bleeding into each other,
 surviving a reload both with and without an explicit flush, both answers to
 the persistent-storage request, export/import round trips, and the game still
-working with IndexedDB blocked entirely.
+working with IndexedDB blocked entirely. `cosmetics.mjs` checks the
+catalogue for malformed art and duplicate ownership keys, drives real runs to
+verify what they pay, and screenshots the same frame with and without
+cosmetics equipped to prove they reach the canvas.
 
 `.github/workflows/pages.yml` deploys `index.html`, the manifest, the service
 worker and the icons to GitHub Pages on every push.

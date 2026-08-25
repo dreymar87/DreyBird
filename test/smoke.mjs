@@ -132,13 +132,31 @@ await page.waitForFunction(() => !!window.__dreybird);
 const bestAfter = await page.evaluate(() => __dreybird.G.best);
 check('best score survives a reload', bestBefore === 23 && bestAfter === 23, `before=${bestBefore} after=${bestAfter}`);
 
-// --- unlocks follow the best score ------------------------------------
+// --- score-gated birds still follow the best score ---------------------
+// The five original birds keep their thresholds; coin-priced birds are a
+// separate axis and must not be counted here.
 const unlocks = await page.evaluate(() => {
-  const btns = [...document.querySelectorAll('.skin')];
-  return btns.map(b => ({ name: b.querySelector('.name').textContent, locked: b.disabled }));
+  const gated = __dreybird.SKINS.filter(s => s.need != null);
+  const cards = [...document.querySelectorAll('#skin-list .card')];
+  return {
+    gated: gated.map(s => ({ name: s.name, need: s.need, open: __dreybird.available(s) })),
+    rendered: cards.length
+  };
 });
-check('skins unlock by best score (best=23 → 3 open, 2 locked)',
-  unlocks.filter(u => !u.locked).length === 3, JSON.stringify(unlocks));
+check('score-gated birds unlock by best score (best=23 → 3 open, 2 locked)',
+  unlocks.gated.filter(u => u.open).length === 3 &&
+  unlocks.gated.filter(u => !u.open).length === 2, JSON.stringify(unlocks.gated));
+check('the shop renders a card per bird', unlocks.rendered === 12, 'cards=' + unlocks.rendered);
+
+// A renamed CSS class once left these cards completely unstyled in a
+// shipped build, so assert they are actually wearing the stylesheet.
+const styled = await page.evaluate(() => {
+  const el = document.querySelector('#skin-list .card');
+  const cs = getComputedStyle(el);
+  return { display: cs.display, radius: cs.borderTopLeftRadius, colour: cs.color };
+});
+check('shop cards are styled, not default browser buttons',
+  styled.display === 'flex' && styled.radius !== '0px', JSON.stringify(styled));
 
 // --- screenshots of the real states -----------------------------------
 await page.evaluate(() => {

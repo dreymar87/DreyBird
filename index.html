@@ -185,7 +185,7 @@
   .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .card[aria-pressed="true"] { border-color: var(--accent); background: rgba(245, 179, 45, .18); }
   .card:disabled { cursor: not-allowed; opacity: .55; }
-  .card canvas { width: 42px; height: 30px; image-rendering: pixelated; flex: none; }
+  .card canvas { width: 44px; height: auto; image-rendering: pixelated; flex: none; }
   .card .meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
   .card .name {
     font-family: "Press Start 2P", ui-monospace, monospace;
@@ -238,6 +238,44 @@
   .tool:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
   .tool[data-armed="1"] { background: #a3281a; border-color: #e0452f; }
   .tool:disabled { opacity: .4; cursor: not-allowed; }
+
+  .tabs { display: flex; gap: 4px; }
+  .tab {
+    flex: 1;
+    font-family: inherit;
+    font-size: 11px;
+    padding: 9px 2px;
+    color: rgba(255, 255, 255, .72);
+    background: rgba(255, 255, 255, .07);
+    border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .tab:hover { background: rgba(255, 255, 255, .14); }
+  .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .tab[aria-selected="true"] {
+    color: #fff;
+    border-color: var(--accent);
+    background: rgba(245, 179, 45, .22);
+  }
+  .wallet {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-family: "Press Start 2P", ui-monospace, monospace;
+    font-size: 10px;
+    color: var(--accent);
+    letter-spacing: .04em;
+  }
+  .coin {
+    width: 11px; height: 11px; border-radius: 50%;
+    background: #f5c33b;
+    box-shadow: inset 0 0 0 2px #c99114;
+    flex: none;
+  }
+  .card .price { font-size: 11px; color: var(--accent); }
+  .card .price.short { color: rgba(255, 255, 255, .45); }
 
   .sheet-actions { display: flex; gap: 6px; }
   .sheet-btn {
@@ -316,7 +354,7 @@
     </svg>
   </button>
 
-  <button id="btn-skins" class="iconbtn" type="button" aria-label="Choose your bird">
+  <button id="btn-skins" class="iconbtn" type="button" aria-label="Shop">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M12 3a9 9 0 0 0 0 18h2a2 2 0 0 0 1.5-3.3 2 2 0 0 1 1.5-3.3H19a2.6 2.6 0 0 0 2-2.6A9 9 0 0 0 12 3Z"></path>
       <circle cx="8" cy="9.5" r="1.1" fill="currentColor"></circle>
@@ -339,9 +377,15 @@
     </svg>
   </button>
 
-  <div id="sheet" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Choose your bird">
-    <h2>Pick a Bird</h2>
-    <p class="hint">New birds unlock as your best score climbs.</p>
+  <div id="sheet" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Shop">
+    <h2>Shop</h2>
+    <p class="wallet"><span class="coin" aria-hidden="true"></span><span id="wallet">0</span></p>
+    <div id="shop-tabs" class="tabs" role="tablist" aria-label="Cosmetic type">
+      <button class="tab" type="button" role="tab" data-kind="bird" aria-selected="true">Birds</button>
+      <button class="tab" type="button" role="tab" data-kind="hat" aria-selected="false">Hats</button>
+      <button class="tab" type="button" role="tab" data-kind="trail" aria-selected="false">Trails</button>
+      <button class="tab" type="button" role="tab" data-kind="world" aria-selected="false">Worlds</button>
+    </div>
     <ul id="skin-list" class="sheet-list"></ul>
     <button id="sheet-close" class="sheet-btn" type="button">Back</button>
   </div>
@@ -553,6 +597,12 @@
       id: 'p' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36),
       name: (name || 'Player').slice(0, MAX_NAME),
       skin: 'classic',
+      hat: 'none',
+      trail: 'none',
+      world: 'meadow',
+      coins: 0,
+      owned: [],
+      granted: false,        // back-pay for play from before the shop existed
       best: 0,
       created: Date.now(),
       stats: { games: 0, pipes: 0, longest: 0, powers: 0, bronze: 0, silver: 0, gold: 0, platinum: 0 }
@@ -569,6 +619,12 @@
       id: typeof p.id === 'string' && p.id ? p.id : d.id,
       name: (typeof p.name === 'string' && p.name.trim() ? p.name.trim() : d.name).slice(0, MAX_NAME),
       skin: typeof p.skin === 'string' ? p.skin : 'classic',
+      hat: typeof p.hat === 'string' ? p.hat : 'none',
+      trail: typeof p.trail === 'string' ? p.trail : 'none',
+      world: typeof p.world === 'string' ? p.world : 'meadow',
+      coins: num(p.coins, 0),
+      owned: Array.isArray(p.owned) ? p.owned.filter(x => typeof x === 'string') : [],
+      granted: p.granted === true,
       best: num(p.best, 0),
       created: num(p.created, d.created),
       stats: {
@@ -577,6 +633,46 @@
         gold: num(st.gold, 0), platinum: num(st.platinum, 0)
       }
     };
+  }
+
+  /* ── coins ────────────────────────────────────────────────────────
+     Earned only by playing. There is no real money here and no server, so
+     a player editing their own save cheats nobody but themselves. */
+  const COIN_PIPE = 1, COIN_POWER = 2;
+  const MEDAL_BONUS = { bronze: 5, silver: 15, gold: 30, platinum: 60 };
+
+  function earn(n) {
+    if (!profile || n <= 0) return;
+    profile.coins += n;
+    G.runCoins += n;
+  }
+
+  // Play that happened before the shop existed still counts.
+  function backPay(p) {
+    if (p.granted) return 0;
+    let n = p.stats.pipes * COIN_PIPE + p.stats.powers * COIN_POWER;
+    for (const tier of Object.keys(MEDAL_BONUS)) n += p.stats[tier] * MEDAL_BONUS[tier];
+    p.coins += n;
+    p.granted = true;
+    return n;
+  }
+
+  function owns(item) {
+    if (!item || !item.id) return false;
+    if (item.cost === 0 || item.need != null) return true;   // free, or score-gated
+    return !!profile && profile.owned.indexOf(keyOf(item)) >= 0;
+  }
+
+  // Score-gated birds stay on their thresholds; everything else is bought.
+  const available = item => (item.need != null ? G.best >= item.need : owns(item));
+
+  function buy(item) {
+    if (!profile || !item || owns(item) || item.need != null) return false;
+    if (profile.coins < item.cost) return false;
+    profile.coins -= item.cost;
+    profile.owned.push(keyOf(item));
+    saveProfile();
+    return true;
   }
 
   let profiles = [];
@@ -597,6 +693,9 @@
     if (!profile) return;
     G.best = profile.best;
     G.skin = SKINS.find(s => s.id === profile.skin) || SKINS[0];
+    G.hat = byId(HATS, profile.hat);
+    G.trail = byId(TRAILS, profile.trail);
+    G.world = byId(WORLDS, profile.world);
   }
 
   /* Durable storage is not the default: browsers evict under pressure and
@@ -626,8 +725,102 @@
     { id: 'ghost', name: 'Ghost', need: 25,
       p: { O: '#8fa7c4', B: '#e9f2ff', L: '#ffffff', W: '#c3d6ee', E: '#ffffff', P: '#4a5b74', K: '#b9c9e0', S: '#93a7c2' }, alpha: 0.72 },
     { id: 'circuit', name: 'Circuit', need: 40,
-      p: { O: '#04150f', B: '#1d3b30', L: '#3ef2a0', W: '#12634a', E: '#3ef2a0', P: '#04150f', K: '#8affd0', S: '#35b98d' } }
+      p: { O: '#04150f', B: '#1d3b30', L: '#3ef2a0', W: '#12634a', E: '#3ef2a0', P: '#04150f', K: '#8affd0', S: '#35b98d' } },
+
+    /* Everything below is bought with coins. The five above stay on score
+       thresholds — they were earned before the shop existed, and putting a
+       price on them afterwards would take them back. */
+    { id: 'mint', name: 'Mint', cost: 40,
+      p: { O: '#123b32', B: '#7fe0c0', L: '#e6fff7', W: '#43b596', E: '#ffffff', P: '#123b32', K: '#ffd66b', S: '#d9a63f' } },
+    { id: 'plum', name: 'Plum', cost: 55,
+      p: { O: '#2c1030', B: '#a65cd6', L: '#f0d6ff', W: '#7a3fa8', E: '#ffffff', P: '#2c1030', K: '#ffc24d', S: '#cf8f1f' } },
+    { id: 'coal', name: 'Coal', cost: 70,
+      p: { O: '#0a0a0c', B: '#3b3d46', L: '#8b8f9c', W: '#26282f', E: '#ff5b4a', P: '#0a0a0c', K: '#c9ccd6', S: '#8b8f9c' } },
+    { id: 'candy', name: 'Candy', cost: 85,
+      p: { O: '#4a1030', B: '#ff9ec4', L: '#fff0f6', W: '#e8628f', E: '#ffffff', P: '#4a1030', K: '#8fe3ff', S: '#4fb0d8' } },
+    { id: 'gilded', name: 'Gilded', cost: 120,
+      p: { O: '#4a3406', B: '#f5c33b', L: '#fff3c4', W: '#c99114', E: '#fffdf2', P: '#4a3406', K: '#fff3c4', S: '#c99114' } },
+    { id: 'abyss', name: 'Abyss', cost: 150,
+      p: { O: '#01050e', B: '#10254a', L: '#4fd8ff', W: '#071634', E: '#4fd8ff', P: '#01050e', K: '#2b7fb8', S: '#155578' } },
+    { id: 'prism', name: 'Prism', cost: 200, shimmer: true,
+      p: { O: '#1a1030', B: '#8fd8ff', L: '#ffe6ff', W: '#b98fff', E: '#ffffff', P: '#1a1030', K: '#ffd36b', S: '#d8a03f' } }
   ];
+
+  /* ── hats ─────────────────────────────────────────────────────────
+     An 11 × 6 pixel grid parked on the bird's head, drawn inside the same
+     translate/rotate so it leans with the dive. Independent of which bird
+     is equipped, so the combinations multiply.
+     . transparent · O outline · A main · B accent  */
+  const HAT_W = 11, HAT_H = 6;
+  const HATS = [
+    { id: 'none', name: 'Bare head', cost: 0, art: null },
+    { id: 'cap', name: 'Ball Cap', cost: 45,
+      c: { O: '#16233d', A: '#3f7fd6', B: '#2b5da3' },
+      art: ['...OOOOO...', '..OAAAAAO..', '.OAAAAAAAO.', 'OAAAAAAAAAO', 'OBBBBBBBBBO', '.OOOOOOOOO.'] },
+    { id: 'party', name: 'Party Hat', cost: 60,
+      c: { O: '#3d1030', A: '#ff6fae', B: '#ffe066' },
+      art: ['.....B.....', '....OAO....', '...OABAO...', '..OAAAAAO..', '.OAABAAAAO.', 'OOOOOOOOOOO'] },
+    { id: 'crown', name: 'Crown', cost: 110,
+      c: { O: '#4a3406', A: '#f7d045', B: '#fff3c4' },
+      art: ['O.O.....O.O', 'OAOAO.OAOAO', 'OAAAOOOAAAO', 'OAABAAABAAO', 'OAAAAAAAAAO', 'OOOOOOOOOOO'] },
+    { id: 'halo', name: 'Halo', cost: 90, float: 3,
+      c: { O: '#c9a227', A: '#ffe9a8', B: '#fff8dc' },
+      art: ['..OOOOOOO..', '.OAAAAAAAO.', 'OAABBBBBAAO', 'OAAOOOOOAAO', '.OAAAAAAAO.', '..OOOOOOO..'] },
+    { id: 'horns', name: 'Horns', cost: 130,
+      c: { O: '#2a0806', A: '#e8452c', B: '#ffb199' },
+      art: ['OO.......OO', 'OAO.....OAO', 'OABO...OBAO', '.OAO...OAO.', '..OAOOOAO..', '...OOOOO...'] },
+    { id: 'topper', name: 'Top Hat', cost: 160,
+      c: { O: '#080a10', A: '#23262f', B: '#c0392b' },
+      art: ['..OOOOOOO..', '..OAAAAAO..', '..OAAAAAO..', '..OBBBBBO..', 'OOOAAAAAOOO', 'OOOOOOOOOOO'] }
+  ];
+
+  /* ── trails ───────────────────────────────────────────────────────
+     Emitters, not sprites. Each spawns particles behind the bird while
+     playing; they are drawn before the bird so they sit behind it. */
+  const TRAILS = [
+    { id: 'none', name: 'No trail', cost: 0 },
+    { id: 'spark', name: 'Sparks', cost: 60, every: 3, life: 22, size: 2, drift: -0.9, rise: -0.05,
+      colors: ['#ffe9a8', '#ffd257', '#ffffff'] },
+    { id: 'bubble', name: 'Bubbles', cost: 75, every: 5, life: 34, size: 3, drift: -0.5, rise: -0.16,
+      colors: ['#bfeeff', '#7fd8ff', '#ffffff'] },
+    { id: 'ember', name: 'Embers', cost: 95, every: 2, life: 20, size: 2, drift: -1.2, rise: -0.09,
+      colors: ['#ff8a3d', '#ff4f2b', '#ffd06b'] },
+    { id: 'frost', name: 'Frost', cost: 110, every: 3, life: 30, size: 2, drift: -0.7, rise: 0.05,
+      colors: ['#dff4ff', '#a9dcff', '#6fb8e8'] },
+    { id: 'rainbow', name: 'Rainbow', cost: 150, every: 2, life: 28, size: 3, drift: -0.8, rise: -0.02,
+      colors: ['#ff5f5f', '#ffb03a', '#ffe066', '#5ad46f', '#4fb6f0', '#a65cd6'] }
+  ];
+
+  /* ── worlds ───────────────────────────────────────────────────────
+     Repaints the pipes, and optionally replaces the day/night cycle with
+     its own palette list. `phases: null` keeps the default cycle. */
+  const PIPE_DEFAULT = { body: '#63c53c', light: '#9de86f', dark: '#2f7a24', edge: '#1d4a18' };
+  const WORLDS = [
+    { id: 'meadow', name: 'Meadow', cost: 0, pipes: PIPE_DEFAULT, phases: null },
+    { id: 'sunset', name: 'Endless Sunset', cost: 180,
+      pipes: { body: '#e07a3c', light: '#ffb072', dark: '#8f4318', edge: '#5c2a0e' },
+      phases: [{ sky: ['#e8724a', '#ffcf8f'], cloud: '#ffe3cd', city: '#a25f63', dirt: '#d5b880', grass: '#9c8639', star: 0.1, sun: '#ffe9a8' }] },
+    { id: 'mono', name: 'Monochrome', cost: 220,
+      pipes: { body: '#8b8f9c', light: '#c9ccd6', dark: '#4a4d57', edge: '#26282f' },
+      phases: [{ sky: ['#6f7481', '#c2c6d0'], cloud: '#e8eaef', city: '#575b66', dirt: '#b9bcc4', grass: '#7d8189', star: 0, sun: '#f2f3f6' }] },
+    { id: 'neon', name: 'Neon Grid', cost: 260,
+      pipes: { body: '#12345c', light: '#3ef2ff', dark: '#0a1c33', edge: '#04101f' },
+      phases: [{ sky: ['#12002e', '#3d0a5c'], cloud: '#5a1a8a', city: '#1d0640', dirt: '#2a1148', grass: '#ff2fb9', star: 0.9, sun: '#ff2fb9' }] },
+    { id: 'sakura', name: 'Sakura', cost: 300,
+      pipes: { body: '#d4738f', light: '#ffb3c7', dark: '#8f3f57', edge: '#5c2434' },
+      phases: [{ sky: ['#ffd3e2', '#fff0f4'], cloud: '#ffffff', city: '#d9a3b6', dirt: '#e8d5c4', grass: '#c98fa6', star: 0, sun: '#fff6da' }] }
+  ];
+
+  const byId = (list, id) => list.find(x => x.id === id) || list[0];
+
+  /* Ownership is keyed by kind:id, not id alone. Ids only have to be
+     unique within their own list — there is a bird called Ember and a
+     trail called Embers, and a flat id list would have let buying one
+     silently grant the other. */
+  for (const [kind, list] of [['bird', SKINS], ['hat', HATS], ['trail', TRAILS], ['world', WORLDS]]) {
+    for (const item of list) item.kind = kind;
+  }
+  const keyOf = item => item.kind + ':' + item.id;
 
   // 17 × 12 cells, 2 px each → the original's 34 × 24 bird.
   // O outline · B body · L belly · W wing · E eye · P pupil · K beak
@@ -711,6 +904,7 @@
   const pipes = [];
   const powers = [];
   const puffs = [];
+  const trail = [];          // cosmetic only — never touched by collision
 
   const G = {
     state: READY,
@@ -728,10 +922,12 @@
     invuln: 0,
     lastGap: 200,
     runTicks: 0,
-    skin: SKINS[0]
+    runCoins: 0,
+    skin: SKINS[0],
+    hat: HATS[0],
+    trail: TRAILS[0],
+    world: WORLDS[0]
   };
-
-  const unlocked = s => G.best >= s.need;
 
   const stars = [];
   for (let i = 0; i < 46; i++) {
@@ -752,6 +948,7 @@
     pipes.length = 0;
     powers.length = 0;
     puffs.length = 0;
+    trail.length = 0;
     bird.y = bird.py = 236;
     bird.vy = 0;
     bird.rot = bird.prot = 0;
@@ -795,6 +992,8 @@
     G.state = PLAYING;
     G.ticks = 0;
     G.runTicks = 0;
+    G.runCoins = 0;
+    trail.length = 0;
     pipes.length = 0;
     powers.length = 0;
     spawnPipe(W + 40);
@@ -836,7 +1035,10 @@
     st.longest = Math.max(st.longest, G.runTicks);
     if (G.score > profile.best) profile.best = G.score;
     const m = medalFor(G.score);
-    if (m) st[m.name.toLowerCase()]++;
+    if (m) {
+      st[m.name.toLowerCase()]++;
+      earn(MEDAL_BONUS[m.name.toLowerCase()] || 0);
+    }
     saveProfile();
     buildPlayers();
   }
@@ -891,6 +1093,7 @@
           p.scored = true;
           G.score++;
           if (profile) profile.stats.pipes++;
+          earn(COIN_PIPE);
           audio.score();
         }
       }
@@ -904,6 +1107,7 @@
           if (q.kind === 'shield') G.shield = true;
           else G.slow = PU_TICKS;
           if (profile) profile.stats.powers++;
+          earn(COIN_POWER);
           audio.power();
           puff(q.x, q.y, q.kind === 'shield' ? '#7fdcff' : '#c9a0ff', 10);
         }
@@ -942,6 +1146,31 @@
       if (bird.y + HIT_H / 2 >= GY) { bird.y = GY - HIT_H / 2; land(); }
     }
 
+    // Trail: cosmetic particles behind the bird. Emission thins out under
+    // prefers-reduced-motion rather than disappearing, so the cosmetic you
+    // paid for is still visibly there.
+    if (G.trail && G.trail.every && (G.state === PLAYING || G.state === DYING)) {
+      const every = reduceMotion ? G.trail.every * 3 : G.trail.every;
+      if (G.ticks % every === 0 && trail.length < 120) {
+        const cols = G.trail.colors;
+        trail.push({
+          x: bird.x - 10 + (Math.random() * 4 - 2),
+          y: bird.y + (Math.random() * 8 - 4),
+          vx: G.trail.drift - SPEED * 0.35,
+          vy: G.trail.rise + (Math.random() * 0.3 - 0.15),
+          life: G.trail.life,
+          max: G.trail.life,
+          size: G.trail.size,
+          color: cols[Math.floor(Math.random() * cols.length)]
+        });
+      }
+    }
+    for (let i = trail.length - 1; i >= 0; i--) {
+      const t = trail[i];
+      t.x += t.vx; t.y += t.vy; t.life--;
+      if (t.life <= 0 || t.x < -12) trail.splice(i, 1);
+    }
+
     if (G.flash > 0) G.flash = Math.max(0, G.flash - 0.09);
     if (G.shake > 0) G.shake = Math.max(0, G.shake - 0.7);
     for (let i = puffs.length - 1; i >= 0; i--) {
@@ -973,10 +1202,14 @@
   }
 
   function phaseNow() {
-    const seg = ((G.cycle / PHASE_LEN) % 4 + 4) % 4;
+    // A world with its own palette list overrides the day/night cycle; a
+    // single-entry list simply holds that look forever.
+    const list = (G.world && G.world.phases) || PHASES;
+    const n = list.length;
+    const seg = ((G.cycle / PHASE_LEN) % n + n) % n;
     const i = Math.floor(seg);
-    const t = smooth(clamp((seg - i - 0.55) / 0.45, 0, 1));
-    const a = PHASES[i], b = PHASES[(i + 1) % 4];
+    const t = n === 1 ? 0 : smooth(clamp((seg - i - 0.55) / 0.45, 0, 1));
+    const a = list[i], b = list[(i + 1) % n];
     return {
       sky0: mix(a.sky[0], b.sky[0], t), sky1: mix(a.sky[1], b.sky[1], t),
       cloud: mix(a.cloud, b.cloud, t), city: mix(a.city, b.city, t),
@@ -1001,6 +1234,30 @@
         if (!fill) continue;
         c.fillStyle = fill;
         c.fillRect(ox + col * CELL, oy + r * CELL + (ch === 'W' ? wing : 0), CELL, CELL);
+      }
+    }
+    c.restore();
+  }
+
+  /* Drawn inside the bird's own transform so it leans with the dive.
+     `float` lifts a hat clear of the head — a halo, not a helmet. */
+  function drawHat(c, x, y, rot, hat, alphaOverride) {
+    if (!hat || !hat.art) return;
+    c.save();
+    c.translate(x, y);
+    c.rotate(rot);
+    if (alphaOverride != null) c.globalAlpha = alphaOverride;
+    const ox = -HAT_W * CELL / 2;
+    const oy = -ART_H * CELL / 2 - HAT_H * CELL + 2 - (hat.float || 0);
+    for (let r = 0; r < HAT_H; r++) {
+      const row = hat.art[r];
+      for (let col = 0; col < HAT_W; col++) {
+        const ch = row[col];
+        if (ch === '.') continue;
+        const fill = hat.c[ch];
+        if (!fill) continue;
+        c.fillStyle = fill;
+        c.fillRect(ox + col * CELL, oy + r * CELL, CELL, CELL);
       }
     }
     c.restore();
@@ -1072,7 +1329,8 @@
 
   function drawPipe(p, x) {
     const top = p.gap - GAP / 2, bot = p.gap + GAP / 2;
-    const body = '#63c53c', light = '#9de86f', dark = '#2f7a24', edge = '#1d4a18';
+    const pal = (G.world && G.world.pipes) || PIPE_DEFAULT;
+    const body = pal.body, light = pal.light, dark = pal.dark, edge = pal.edge;
 
     const column = (y, h) => {
       ctx.fillStyle = body;   ctx.fillRect(x, y, PIPE_W, h);
@@ -1211,6 +1469,11 @@
     textOut(ctx, 'BEST', rx, pyy + 62, 7, '#8d7c4c', '#e7dcb4', 'right');
     textOut(ctx, String(G.best), rx, pyy + 80, 15, '#ffffff', '#20160a', 'right');
 
+    if (G.runCoins > 0) {
+      textOut(ctx, '+' + G.runCoins, pxx + 42, pyy + 88, 8, '#f5c33b', '#20160a');
+      textOut(ctx, 'COINS', pxx + 42, pyy + 88 + 13, 6, '#8d7c4c', '#e7dcb4');
+    }
+
     if (G.newBest) {
       ctx.fillStyle = '#20160a'; ctx.fillRect(pxx + 92, pyy + 54, 48, 14);
       ctx.fillStyle = '#e0452f'; ctx.fillRect(pxx + 94, pyy + 56, 44, 10);
@@ -1238,6 +1501,13 @@
     for (const p of pipes) drawPipe(p, Math.round(lerp(p.px, p.x, alpha)));
     for (const q of powers) if (!q.got) drawPower(q, lerp(q.px, q.x, alpha));
 
+    // Behind the bird, so it reads as something left in its wake.
+    for (const t of trail) {
+      ctx.globalAlpha = clamp(t.life / t.max, 0, 1) * 0.9;
+      ctx.fillStyle = t.color;
+      ctx.fillRect(Math.round(t.x), Math.round(t.y), t.size, t.size);
+    }
+
     for (const f of puffs) {
       ctx.globalAlpha = clamp(f.life / 24, 0, 1);
       ctx.fillStyle = f.color;
@@ -1252,6 +1522,7 @@
     const blink = G.invuln > 0 && Math.floor(G.ticks / 4) % 2 === 0 ? 0.4 : null;
     drawAuraAt(bird.x, by);
     drawBird(ctx, bird.x, by, brot, G.skin, wing, blink);
+    drawHat(ctx, bird.x, by, brot, G.hat, blink);
 
     drawHud();
     if (G.state === READY) drawReady();
@@ -1335,50 +1606,152 @@
 
   /* ══════════════════ bird picker ══════════════════ */
 
-  function skinPreview(skin) {
+  /* ── shop previews: one small canvas per card ─────────────────── */
+
+  function previewCanvas(w, h) {
     const c = document.createElement('canvas');
-    c.width = ART_W * CELL * 2;
-    c.height = ART_H * CELL * 2 + 12;
+    c.width = w * 2;
+    c.height = h * 2;
     const g = c.getContext('2d');
     g.imageSmoothingEnabled = false;
     g.setTransform(2, 0, 0, 2, 0, 0);
-    drawBird(g, ART_W * CELL / 2, ART_H * CELL / 2 + 3, 0, skin, 0, unlocked(skin) ? (skin.alpha || 1) : 0.35);
+    return [c, g];
+  }
+
+  // One frame for every card, tall enough that a hat is never clipped.
+  const PV_W = ART_W * CELL, PV_H = ART_H * CELL + 18;
+
+  function skinPreview(skin, dim) {
+    const [c, g] = previewCanvas(PV_W, PV_H);
+    drawBird(g, PV_W / 2, PV_H / 2, 0, skin, 0, dim ? 0.3 : (skin.alpha || 1));
     return c;
   }
 
+  function hatPreview(hat, dim) {
+    const [c, g] = previewCanvas(PV_W, PV_H);
+    // Shown on the bird you actually play, so you can judge the pairing.
+    const y = PV_H / 2 + 6;
+    drawBird(g, PV_W / 2, y, 0, G.skin, 0, dim ? 0.3 : (G.skin.alpha || 1));
+    drawHat(g, PV_W / 2, y, 0, hat, dim ? 0.3 : null);
+    return c;
+  }
+
+  function trailPreview(t, dim) {
+    const [c, g] = previewCanvas(PV_W, PV_H);
+    const midY = PV_H / 2;
+    g.globalAlpha = dim ? 0.3 : 1;
+    if (t.colors) {
+      for (let i = 0; i < 11; i++) {
+        g.globalAlpha = (dim ? 0.3 : 1) * (1 - i / 12);
+        g.fillStyle = t.colors[i % t.colors.length];
+        g.fillRect(24 - i * 2.4, midY - 1 + Math.sin(i / 1.7) * 3, t.size, t.size);
+      }
+    }
+    g.globalAlpha = dim ? 0.3 : 1;
+    drawBird(g, 26, midY, 0, G.skin, 0, dim ? 0.3 : (G.skin.alpha || 1));
+    return c;
+  }
+
+  function worldPreview(w, dim) {
+    const [c, g] = previewCanvas(PV_W, PV_H);
+    const ww = PV_W, hh = PV_H;
+    const ph = (w.phases || PHASES)[0];
+    g.globalAlpha = dim ? 0.35 : 1;
+    const sky = g.createLinearGradient(0, 0, 0, hh);
+    sky.addColorStop(0, ph.sky[0]);
+    sky.addColorStop(1, ph.sky[1]);
+    g.fillStyle = sky; g.fillRect(0, 0, ww, hh);
+    const pal = w.pipes || PIPE_DEFAULT;
+    g.fillStyle = pal.body;  g.fillRect(20, 0, 12, 13); g.fillRect(20, 25, 12, hh);
+    g.fillStyle = pal.light; g.fillRect(22, 0, 3, 13);   g.fillRect(22, 25, 3, hh);
+    g.fillStyle = pal.edge;  g.fillRect(18, 11, 16, 3);  g.fillRect(18, 23, 16, 3);
+    g.fillStyle = ph.grass;  g.fillRect(0, hh - 7, ww, 3);
+    g.fillStyle = ph.dirt;   g.fillRect(0, hh - 4, ww, 4);
+    return c;
+  }
+
+  /* ── shop ─────────────────────────────────────────────────────────
+     Buying and equipping are the same screen: it is where someone goes
+     looking for their birds anyway. */
+  const TABS = [
+    { kind: 'bird',  list: () => SKINS,  preview: skinPreview,  equip: 'skin' },
+    { kind: 'hat',   list: () => HATS,   preview: hatPreview,   equip: 'hat' },
+    { kind: 'trail', list: () => TRAILS, preview: trailPreview, equip: 'trail' },
+    { kind: 'world', list: () => WORLDS, preview: worldPreview, equip: 'world' }
+  ];
+  let shopKind = 'bird';
+
+  function equipped(tab, item) {
+    return profile ? profile[tab.equip] === item.id : false;
+  }
+
+  function equip(tab, item) {
+    if (!profile) return;
+    profile[tab.equip] = item.id;
+    saveProfile();
+    applyProfile();
+    buildSheet();
+    buildPlayers();
+  }
+
+  function cardLabel(tab, item) {
+    if (item.need != null && !available(item)) return { text: 'Reach a best of ' + item.need, cls: 'req' };
+    if (!owns(item)) {
+      const short = profile ? item.cost - profile.coins : item.cost;
+      return short > 0
+        ? { text: item.cost + ' coins — ' + short + ' more to go', cls: 'price short' }
+        : { text: 'Buy for ' + item.cost + ' coins', cls: 'price' };
+    }
+    return { text: equipped(tab, item) ? 'Equipped' : 'Tap to equip', cls: 'req' };
+  }
+
   function buildSheet() {
+    const tab = TABS.find(t => t.kind === shopKind) || TABS[0];
+    const wallet = document.getElementById('wallet');
+    if (wallet) wallet.textContent = profile ? profile.coins : 0;
+
+    for (const b of document.querySelectorAll('#shop-tabs .tab')) {
+      b.setAttribute('aria-selected', String(b.dataset.kind === shopKind));
+    }
+
     skinList.textContent = '';
-    for (const s of SKINS) {
+    for (const item of tab.list()) {
       const li = document.createElement('li');
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = 'skin';
-      b.setAttribute('aria-pressed', String(G.skin.id === s.id));
-      b.disabled = !unlocked(s);
-      b.appendChild(skinPreview(s));
+      b.className = 'card';
+      b.dataset.item = item.id;
+      const has = available(item);
+      b.setAttribute('aria-pressed', String(equipped(tab, item)));
+      b.disabled = item.need != null && !has;
+      b.appendChild(tab.preview(item, !has));
 
       const meta = document.createElement('span');
       meta.className = 'meta';
       const name = document.createElement('span');
       name.className = 'name';
-      name.textContent = s.name;
+      name.textContent = item.name;
+      const label = cardLabel(tab, item);
       const req = document.createElement('span');
-      req.className = 'req';
-      req.textContent = unlocked(s)
-        ? (G.skin.id === s.id ? 'Equipped' : 'Tap to equip')
-        : 'Reach a best of ' + s.need;
+      req.className = label.cls;
+      req.textContent = label.text;
       meta.append(name, req);
       b.appendChild(meta);
 
       b.addEventListener('click', () => {
-        if (!unlocked(s)) return;
-        G.skin = s;
-        if (profile) { profile.skin = s.id; saveProfile(); buildPlayers(); }
-        buildSheet();
+        if (item.need != null) { if (has) equip(tab, item); return; }
+        if (owns(item)) { equip(tab, item); return; }
+        if (buy(item)) equip(tab, item);      // buying equips straight away
+        else buildSheet();                    // not enough coins: refresh the count
       });
+
       li.appendChild(b);
       skinList.appendChild(li);
     }
+  }
+
+  for (const b of document.querySelectorAll('#shop-tabs .tab')) {
+    b.addEventListener('click', () => { shopKind = b.dataset.kind; buildSheet(); });
   }
 
   function openSheet() { buildSheet(); sheet.hidden = false; document.getElementById('sheet-close').focus(); }
@@ -1420,15 +1793,14 @@
     }
   }
 
+  // A player's row shows what they actually fly in — bird and hat.
   function playerPreview(p) {
-    const skin = SKINS.find(s => s.id === p.skin) || SKINS[0];
-    const c = document.createElement('canvas');
-    c.width = ART_W * CELL * 2;
-    c.height = ART_H * CELL * 2 + 12;
-    const g = c.getContext('2d');
-    g.imageSmoothingEnabled = false;
-    g.setTransform(2, 0, 0, 2, 0, 0);
-    drawBird(g, ART_W * CELL / 2, ART_H * CELL / 2 + 3, 0, skin, 0, skin.alpha || 1);
+    const skin = byId(SKINS, p.skin);
+    const hat = byId(HATS, p.hat);
+    const [c, g] = previewCanvas(PV_W, PV_H);
+    const y = PV_H / 2 + 6;
+    drawBird(g, PV_W / 2, y, 0, skin, 0, skin.alpha || 1);
+    drawHat(g, PV_W / 2, y, 0, hat, null);
     return c;
   }
 
@@ -1591,11 +1963,18 @@
         vault.putProfile(incoming);
         added++;
       } else {
-        // Never silently lose a record: keep the better of each number.
+        // Never silently lose a record: keep the better of each number, and
+        // the union of purchases. A restored backup must not repossess
+        // something already bought, or hand back coins already spent.
         mine.best = Math.max(mine.best, incoming.best);
+        mine.coins = Math.max(mine.coins, incoming.coins);
         for (const k of Object.keys(mine.stats)) {
           mine.stats[k] = Math.max(mine.stats[k], incoming.stats[k] || 0);
         }
+        for (const key of incoming.owned) {
+          if (mine.owned.indexOf(key) < 0) mine.owned.push(key);
+        }
+        mine.granted = mine.granted || incoming.granted;
         if (mine.name !== incoming.name && incoming.name) mine.name = incoming.name;
         vault.putProfile(JSON.parse(JSON.stringify(mine)));
         merged++;
@@ -1702,6 +2081,12 @@
     profile = profiles.find(p => p.id === state.activeId) || profiles[0];
     if (profile.id !== state.activeId) vault.setActive(profile.id);
 
+    // Anyone who played before the shop existed is paid for that play,
+    // exactly once — the `granted` flag is what stops a second payout.
+    for (const p of profiles) {
+      if (backPay(p) > 0) vault.putProfile(JSON.parse(JSON.stringify(p)));
+    }
+
     applyProfile();
     try {
       if (navigator.storage && navigator.storage.persisted) persisted = await navigator.storage.persisted();
@@ -1725,7 +2110,7 @@
     window.__dreybird = {
       W, H, GY, SPEED, SPACING, PIPE_W, GAP, PU_TICKS,
       G, bird, pipes, powers,
-      frame, tick, flap, press, resetWorld, startPlay, drawBird, SKINS,
+      frame, tick, flap, press, resetWorld, startPlay, drawBird,
       states: { READY, PLAYING, DYING, OVER },
       detach() { started = false; acc = 0; },
       // profiles
@@ -1733,6 +2118,18 @@
       profiles: () => profiles,
       active: () => profile,
       createProfile, switchProfile, deleteProfile, exportSave, importSave,
+      // shop
+      SKINS, HATS, TRAILS, WORLDS,
+      coins: () => (profile ? profile.coins : 0),
+      owns, available, buy,
+      equip: (kind, id) => {
+        const tab = TABS.find(t => t.kind === kind);
+        const item = tab.list().find(x => x.id === id);
+        if (tab && item) equip(tab, item);
+      },
+      setTab: k => { shopKind = k; buildSheet(); },
+      trailParticles: () => trail,
+      COIN_PIPE, COIN_POWER, MEDAL_BONUS,
       openPlayers, closePlayers,
       storage: () => ({ backend: vault.kind, persisted: persisted }),
       flush: () => vault.flush()

@@ -242,6 +242,28 @@ async function fresh(init) {
   check('importing an older save never lowers a best score or wipes stats',
     merge.after === merge.before && merge.after === 26 && merge.games >= 1, JSON.stringify(merge));
 
+  // Coins and purchases must travel with the save, and a merge must never
+  // repossess something already bought or hand back spent coins.
+  const wallet = await page.evaluate(() => {
+    const d = __dreybird;
+    const p = d.active();
+    p.coins = 500;
+    d.buy(d.HATS.find(h => h.id === 'crown'));
+    d.buy(d.WORLDS.find(w => w.id === 'neon'));
+    const rich = d.exportSave();
+
+    // A stale backup: fewer coins, and one of the two items never bought.
+    const stale = JSON.parse(JSON.stringify(rich));
+    stale.profiles = stale.profiles.map(x =>
+      x.id === p.id ? { ...x, coins: 5, owned: ['trail:spark'] } : x);
+    d.importSave(stale);
+    const after = d.profiles().find(x => x.id === p.id);
+    return { coins: after.coins, owned: after.owned.slice().sort() };
+  });
+  check('a stale import keeps the higher balance and the union of purchases',
+    wallet.coins === 500 - 110 - 260 &&
+    wallet.owned.join() === 'hat:crown,trail:spark,world:neon', JSON.stringify(wallet));
+
   const junk = await page.evaluate(() => __dreybird.importSave({ hello: 'world' }));
   check('a file that is not a DreyBird save is refused', junk.ok === false, JSON.stringify(junk));
   await context.close();
