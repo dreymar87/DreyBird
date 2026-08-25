@@ -1,8 +1,11 @@
 name: Deploy to GitHub Pages
 
+# The github-pages environment only accepts deployments from the default
+# branch, so this deploys from main. Pushes to other branches are rejected
+# before the job starts, which produces a failed run with no logs.
 on:
   push:
-    branches: [claude/flappy-bird-game-0wr1hb]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
