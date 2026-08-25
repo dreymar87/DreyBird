@@ -131,6 +131,11 @@ const SCRIPTED = `(seed, flapEvery) => {
   check('holding pins it regardless of distance flown', sky.held[0] === sky.held[1]);
   check('and the choice is stored on the profile', sky.saved === 0, 'bg=' + sky.saved);
 
+  // setBackground enqueues the write; it does not wait for it. This check
+  // is about the setting persisting, not about how fast the queue drains,
+  // so wait for the write rather than racing the reload. On a fast runner
+  // the reload won that race and turned the main deploy red.
+  await page.evaluate(() => __dreybird.flush());
   await page.reload();
   await page.waitForFunction(() => !!window.__dreybird);
   const kept = await page.evaluate(() => ({ bg: __dreybird.active().bg, live: __dreybird.G.bg }));
