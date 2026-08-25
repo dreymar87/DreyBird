@@ -1,0 +1,48 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [claude/flappy-bird-game-0wr1hb]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a newer deploy finish; don't cancel one that's mid-flight.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # enablement: true turns Pages on via the API if it isn't already.
+      # If the token isn't allowed to, set Settings → Pages → Source to
+      # "GitHub Actions" once, by hand, and re-run this workflow.
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      # Publish only what the game needs — not the test harness.
+      - name: Assemble the site
+        run: |
+          mkdir -p _site
+          cp index.html manifest.webmanifest sw.js _site/
+          cp -r icons _site/
+          touch _site/.nojekyll
+          ls -R _site
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

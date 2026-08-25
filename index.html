@@ -1,5 +1,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>DreyBird</title>
+<meta name="description" content="A one-file tribute to Flappy Bird. Tap to flap, thread the pipes, chase a medal.">
+<meta name="theme-color" content="#dfe0e8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0e14" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="DreyBird">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon-180.png">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chivo:wght@400;700&family=Press+Start+2P&display=swap">
@@ -202,7 +211,30 @@
     text-align: center;
     letter-spacing: .01em;
     flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 9px;
   }
+  footer p { margin: 0; max-width: 46ch; text-wrap: balance; }
+  #install {
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .02em;
+    color: var(--page);
+    background: var(--accent);
+    border: none;
+    border-radius: 3px;
+    padding: 9px 18px;
+    cursor: pointer;
+    transition: filter .18s ease, transform .12s ease;
+  }
+  #install:hover { filter: brightness(1.08); }
+  #install:active { transform: scale(.97); }
+  #install:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+  #install[hidden], #ios-install[hidden] { display: none; }
+  :root[data-standalone="1"] footer { display: none; }
   footer b {
     font-weight: 700;
     color: var(--text);
@@ -258,7 +290,9 @@
 </div>
 
 <footer>
-  <b>DreyBird</b> — tap, click, or press <kbd>Space</kbd> to flap. Mind the pipes.
+  <p><b>DreyBird</b> — tap, click, or press <kbd>Space</kbd> to flap. Mind the pipes.</p>
+  <p id="ios-install" hidden>Keep it on your home screen: tap <b>Share</b>, then <b>Add to Home Screen</b>.</p>
+  <button id="install" type="button" hidden>Install DreyBird</button>
 </footer>
 
 <script>
@@ -1077,9 +1111,68 @@
   window.__dreybird = {
     W, H, GY, SPEED, SPACING, PIPE_W, GAP, PU_TICKS,
     G, bird, pipes, powers,
-    frame, tick, flap, press, resetWorld, startPlay,
+    frame, tick, flap, press, resetWorld, startPlay, drawBird, SKINS,
     states: { READY, PLAYING, DYING, OVER },
     detach() { started = false; acc = 0; }
   };
+})();
+</script>
+
+<script>
+/* Packaging: manifest, service worker and the install prompt.
+   Kept apart from the game, and inert wherever the packaged files don't
+   exist — a file:// double-click or the published artifact — so the same
+   index.html works in all three places. */
+(() => {
+  'use strict';
+
+  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  if (standalone) document.documentElement.dataset.standalone = '1';
+
+  const httpish = location.protocol === 'http:' || location.protocol === 'https:';
+  if (!httpish || window.top !== window.self) return;
+
+  const installBtn = document.getElementById('install');
+  const iosHint = document.getElementById('ios-install');
+
+  // Probe rather than link: a static <link rel="manifest"> that 404s would
+  // log an error everywhere the file isn't served. A failed fetch is quiet.
+  fetch('manifest.webmanifest', { method: 'HEAD' }).then(res => {
+    if (!res.ok) return;
+    const link = document.createElement('link');
+    link.rel = 'manifest';
+    link.href = 'manifest.webmanifest';
+    document.head.appendChild(link);
+
+    // iOS never fires beforeinstallprompt, so it gets the manual recipe.
+    const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (iOS && !standalone && iosHint) iosHint.hidden = false;
+  }).catch(() => {});
+
+  if ('serviceWorker' in navigator) {
+    addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
+  }
+
+  let deferred = null;
+  addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    deferred = e;
+    if (installBtn) installBtn.hidden = false;
+  });
+
+  if (installBtn) {
+    installBtn.addEventListener('click', () => {
+      if (!deferred) return;
+      installBtn.hidden = true;
+      deferred.prompt();
+      Promise.resolve(deferred.userChoice).catch(() => {}).then(() => { deferred = null; });
+    });
+  }
+
+  addEventListener('appinstalled', () => {
+    if (installBtn) installBtn.hidden = true;
+    if (iosHint) iosHint.hidden = true;
+  });
 })();
 </script>
