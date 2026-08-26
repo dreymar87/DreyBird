@@ -262,11 +262,11 @@ async function fresh() {
   // my own numbers when this ladder was retuned.
   const ladder = await page.evaluate(() => {
     const d = __dreybird;
-    return d.FEATHERS.map(f => ({ id: f.id, need: f.need, slots: d.slotsAt(f.need) }));
+    return d.FEATHERS.map(f => ({ id: f.id, lvl: f.lvl, slots: d.slotsAt(f.lvl) }));
   });
   check('every perk has somewhere to go the moment it unlocks',
     ladder.every(f => f.slots >= 1),
-    JSON.stringify(ladder.filter(f => f.slots < 1)) || ladder.map(f => f.id + '@' + f.need).join(' '));
+    JSON.stringify(ladder.filter(f => f.slots < 1)) || ladder.map(f => f.id + '@' + f.lvl).join(' '));
 
   const header = await page.evaluate(() => {
     const d = __dreybird;
@@ -376,6 +376,114 @@ async function fresh() {
   await page.waitForFunction(() => !!window.__dreybird);
   const again = await page.evaluate(() => __dreybird.xp());
   check('and not paid again on the next load', again === expected, 'xp=' + again);
+  await context.close();
+}
+
+// --- multipliers reach the wallet ---------------------------------------
+// The old sidegrade check read the trait numbers and never watched a coin
+// land. It passed while Gilded, Candy, Thrift and Mint all paid exactly
+// what Classic paid, because earn() rounded every award on its own and a
+// pipe pays 1. These checks look only at the wallet.
+{
+  const { context, page } = await fresh();
+  const PIPES = 20;
+
+  const payout = (bird, feathers) => page.evaluate(([bird, feathers, PIPES]) => {
+    const d = __dreybird, p = d.active();
+    p.xp = d.xpForLevel(60);                       // enough level for any perk
+    p.feathers = [];
+    d.equip('bird', bird);
+    for (const f of feathers) d.equip('feather', f);
+    p.coins = 0;
+    d.resetWorld();
+    d.startPlay(31337);                            // one seed for every bird
+    let guard = 0;
+    while (d.G.score < PIPES && guard++ < 20000) {
+      // Power-ups pay a flat 2 and their pickup radius follows the hit
+      // trait, so they would confound a comparison between birds. Clearing
+      // them leaves pipe income alone — which is the thing that was broken.
+      d.powers.length = 0;
+      d.G.state = d.states.PLAYING;                // a parked bird is not an immortal one
+      if (d.pipes[0]) d.bird.y = d.pipes[0].gap;
+      d.bird.vy = 0;
+      d.tick();
+    }
+    return { coins: p.coins, runCoins: d.G.runCoins, score: d.G.score, mul: d.physics().coinMul };
+  }, [bird, feathers, PIPES]);
+
+  const classic = await payout('classic', []);
+  const gilded  = await payout('gilded', []);
+  const mint    = await payout('mint', []);
+  const thrift  = await payout('classic', ['thrift']);
+  const both    = await payout('gilded', ['thrift']);
+
+  check('a plain bird earns one coin per pipe',
+    classic.score === PIPES && classic.coins === PIPES, JSON.stringify(classic));
+  check('the wallet agrees with the run total',
+    [classic, gilded, mint, thrift, both].every(r => r.coins === r.runCoins),
+    JSON.stringify([classic, gilded, mint, thrift, both].map(r => r.coins + '/' + r.runCoins)));
+  check('Gilded really does earn more',
+    gilded.coins > classic.coins, 'gilded ' + gilded.coins + ' vs classic ' + classic.coins);
+  check('Mint really does earn less',
+    mint.coins < classic.coins, 'mint ' + mint.coins + ' vs classic ' + classic.coins);
+  check('Thrift really does pay a little more',
+    thrift.coins > classic.coins, 'thrift ' + thrift.coins + ' vs classic ' + classic.coins);
+  // The cliff itself: rounding each award turned 1.35 into 1 and 1.512
+  // into 2, so stacking used to double the income in a single step.
+  check('stacking multiplies, it does not jump a cliff',
+    both.coins > gilded.coins && both.coins < classic.coins * 2,
+    'both ' + both.coins + ', gilded ' + gilded.coins + ', double would be ' + classic.coins * 2);
+  check('each payout tracks its multiplier',
+    [classic, gilded, mint, thrift, both].every(r => Math.abs(r.coins - PIPES * r.mul) < 1),
+    JSON.stringify([classic, gilded, mint, thrift, both].map(r => r.mul.toFixed(3) + '=>' + r.coins)));
+  await context.close();
+}
+
+// --- perks gate on level, not on best score ------------------------------
+// Perks borrowed `need` from the score-gated birds, so a perk card was
+// gated on a best score it has nothing to do with. An assist player never
+// sets a best score by design, so they could reach level 20 and find every
+// perk locked while the label read "Equipped".
+{
+  const { context, page } = await fresh();
+  const gate = await page.evaluate(() => {
+    const d = __dreybird, p = d.active();
+    p.assist = true;                     // the player the old gate locked out
+    p.best = 0; d.G.best = 0;
+    p.xp = d.xpForLevel(20);             // every perk unlocked by level
+    p.feathers = [];
+    d.setTab('feather');
+    const cards = [...document.querySelectorAll('#skin-list button')];
+    const disabled = cards.filter(b => b.disabled).map(b => b.dataset.item);
+    d.equip('feather', 'plate');         // the level-20 perk
+    return {
+      level: d.level(), best: p.best, cards: cards.length,
+      disabled, equipped: (p.feathers || []).slice()
+    };
+  });
+  check('a level-20 player with no best score sees every perk unlocked',
+    gate.cards === 6 && gate.disabled.length === 0,
+    JSON.stringify({ level: gate.level, best: gate.best, disabled: gate.disabled }));
+  check('and can actually equip one',
+    gate.equipped.indexOf('plate') >= 0, JSON.stringify(gate.equipped));
+
+  const low = await page.evaluate(() => {
+    const d = __dreybird, p = d.active();
+    p.xp = d.xpForLevel(5);              // above Thrift, below everything else
+    p.feathers = [];
+    d.equip('feather', 'plate');         // needs level 20
+    const after = (p.feathers || []).slice();
+    d.equip('feather', 'thrift');        // needs level 4
+    d.setTab('feather');
+    const dim = [...document.querySelectorAll('#skin-list button')]
+      .filter(b => b.disabled).map(b => b.dataset.item);
+    return { afterPlate: after, feathers: (p.feathers || []).slice(), dim };
+  });
+  check('a perk above your level is still refused',
+    low.afterPlate.length === 0 && low.feathers.join() === 'thrift',
+    JSON.stringify(low));
+  check('and its card is dimmed while the ones you have reached are not',
+    low.dim.indexOf('plate') >= 0 && low.dim.indexOf('thrift') < 0, JSON.stringify(low.dim));
   await context.close();
 }
 

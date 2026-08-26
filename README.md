@@ -203,6 +203,13 @@ cosmetic — it never changes the difficulty.
 finishing with a medal pays a bonus (bronze 5, silver 15, gold 30, platinum
 60). Spend them in the shop — the palette button in the top-left corner.
 
+Your bird's coin trait multiplies all of it, and the fraction carries
+across the run rather than being rounded away on each pipe. That matters
+more than it sounds: rounding every award on its own made a pipe pay 1
+coin whatever you flew, so Gilded's 1.35 and Mint's 0.9 both paid exactly
+what Classic paid. A single pipe can now tick no coin at all while the
+run's total still comes to what the multiplier says it should.
+
 **Thirty cosmetics**, in four kinds:
 
 - **12 birds.** Classic is yours from the start; Bluebird, Ember, Ghost and
@@ -272,20 +279,20 @@ physics, scoring, collisions, power-ups, unlocks and mobile layout:
 npm install && npx playwright install chromium
 npm test                     # every suite, one verdict
 
-npm run test:smoke           # 18  gameplay
+npm run test:smoke           # 21  gameplay, CI coverage
 npm run test:pwa             # 12  installability, offline, font-hang
 npm run test:profiles        # 28  storage, profiles, import/export
 npm run test:cosmetics       # 15  economy, shop, rendering
 npm run test:determinism     # 12  seeded runs and backgrounds
 npm run test:comfort         # 16  haptics, pause, assist
 npm run test:dynamics        # 16  formations and hazards
-npm run test:progression     # 28  XP, traits and perks
+npm run test:progression     # 39  XP, traits, perks, payouts
 npm run test:crash           #  9  crash survival
 npm run test:polish          # 10  juice, music, tutorial
 npm run icons                #     regenerate the app icons
 ```
 
-164 checks in total.
+178 checks in total.
 
 `smoke.mjs` drops screenshots of each game state into `test/shots/`.
 `pwa.mjs` serves the repo on localhost, waits for the service worker to take

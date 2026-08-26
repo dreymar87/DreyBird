@@ -2,7 +2,7 @@
 // Run with:  node test/smoke.mjs
 import { chromium } from 'playwright';
 import { pathToFileURL } from 'node:url';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync } from 'node:fs';
 
 const HERE = new URL('.', import.meta.url).pathname;
 const PAGE = pathToFileURL(HERE + '../index.html').href;
@@ -11,6 +11,29 @@ const results = [];
 const check = (name, ok, info = '') => { results.push([ok, name, info]); console.log((ok ? 'PASS' : 'FAIL') + ' — ' + name + (info ? '  [' + info + ']' : '')); };
 
 mkdirSync(OUT, { recursive: true });
+
+// --- every suite must actually run in CI --------------------------------
+// run-all.mjs discovers suites from this directory, but the workflow
+// hard-codes its matrix. A new suite therefore passes locally and never
+// runs on a runner at all — which is precisely the hole the CI gate was
+// added to close. This check is the only thing keeping the two in step.
+{
+  const root = HERE + '../';
+  const yml = readFileSync(root + '.github/workflows/pages.yml', 'utf8');
+  const pkg = JSON.parse(readFileSync(root + 'package.json', 'utf8'));
+  const matrix = ((yml.match(/^\s*suite:\s*\[(.*)\]\s*$/m) || [])[1] || '')
+    .split(',').map(x => x.trim()).filter(Boolean);
+  const suites = readdirSync(HERE)                       // same exclusions as run-all.mjs
+    .filter(f => f.endsWith('.mjs') && !['run-all.mjs', 'make-icons.mjs'].includes(f))
+    .map(f => f.replace(/\.mjs$/, ''));
+  const missing = suites.filter(x => !matrix.includes(x));
+  const stale = matrix.filter(x => !suites.includes(x));
+  const unscripted = suites.filter(x => !pkg.scripts || !pkg.scripts['test:' + x]);
+  check('every suite in test/ is named in the CI matrix', missing.length === 0,
+    missing.length ? 'never runs in CI: ' + missing.join(', ') : suites.length + ' suites');
+  check('and the matrix names no suite that no longer exists', stale.length === 0, stale.join(', '));
+  check('and every suite has the npm script the matrix calls', unscripted.length === 0, unscripted.join(', '));
+}
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
 const errors = [];
