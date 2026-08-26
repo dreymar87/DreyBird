@@ -60,6 +60,38 @@ const fit = await page.evaluate(() => {
 check('no page scrollbars at 390x844', !fit.hScroll && !fit.vScroll, JSON.stringify(fit));
 check('canvas keeps 288:512 aspect', Math.abs(fit.w / fit.h - 288 / 512) < 0.01, `${fit.w}x${fit.h}`);
 
+// --- the top bar: nothing sits on anything else ------------------------
+// Adding a button and forgetting its position rule stacks it silently on a
+// neighbour and eats that neighbour's taps. It looks fine in a screenshot of
+// whatever the button opens, which is exactly how it got shipped once.
+{
+  const bar = await page.evaluate(() => {
+    const btns = [...document.querySelectorAll('.iconbtn')]
+      .filter(b => b.offsetParent !== null)
+      .map(b => ({ id: b.id, r: b.getBoundingClientRect() }));
+    const overlaps = [];
+    for (let i = 0; i < btns.length; i++) {
+      for (let j = i + 1; j < btns.length; j++) {
+        const a = btns[i].r, c = btns[j].r;
+        if (a.left < c.right && c.left < a.right && a.top < c.bottom && c.top < a.bottom) {
+          overlaps.push(btns[i].id + ' over ' + btns[j].id);
+        }
+      }
+    }
+    // Present and correctly placed is not the same as reachable: whatever is
+    // at a button's own centre has to be that button.
+    const blocked = btns.filter(b => {
+      const el = document.elementFromPoint(b.r.left + b.r.width / 2, b.r.top + b.r.height / 2);
+      return !el || !(el.id === b.id || el.closest('.iconbtn') === document.getElementById(b.id));
+    }).map(b => b.id);
+    return { count: btns.length, overlaps, blocked };
+  });
+  check('no two controls in the top bar overlap', bar.overlaps.length === 0,
+    bar.overlaps.join(', ') || bar.count + ' visible');
+  check('and every one of them is reachable at its own centre',
+    bar.blocked.length === 0, bar.blocked.join(', ') || 'all ' + bar.count);
+}
+
 // --- READY screen -----------------------------------------------------
 check('starts in READY', await page.evaluate(() => __dreybird.G.state === 0));
 await page.screenshot({ path: OUT + '/shot-ready.png' });

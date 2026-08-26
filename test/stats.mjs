@@ -32,6 +32,20 @@ async function fresh() {
 const SEED = [3, 7, 2, 11, 9, 14, 6, 18, 12, 21, 4, 17, 25, 13, 9,
               28, 19, 7, 22, 31, 16, 11, 34, 20, 8, 26, 15, 29, 12, 23];
 
+// --- the button actually opens it ----------------------------------------
+// Every other check here calls openStats() directly, which is why they all
+// passed on a build where the button was underneath another one and could
+// not be pressed. This one goes through the DOM.
+{
+  const { context, page } = await fresh();
+  const before = await page.evaluate(() => document.getElementById('stats').hidden);
+  await page.click('#btn-stats', { timeout: 3000 });
+  const after = await page.evaluate(() => document.getElementById('stats').hidden);
+  check('clicking the stats button opens the sheet', before === true && after === false,
+    'hidden ' + before + ' -> ' + after);
+  await context.close();
+}
+
 // --- the numbers that were hidden are now on the screen ------------------
 {
   const { context, page } = await fresh();
