@@ -100,9 +100,15 @@
   }
 
   /* ---- overlay controls ---- */
+  /* Two rows, laid out by flex. They used to be six absolutely positioned
+     buttons each carrying its own `left`, which meant adding one and
+     forgetting its rule dropped it at the stage's edge, on top of whatever
+     was already there, silently eating that button's taps. A row cannot do
+     that to itself. */
+  .tools { position: absolute; top: 8px; display: flex; gap: 8px; }
+  .tools-left { left: 8px; }
+  .tools-right { right: 8px; }
   .iconbtn {
-    position: absolute;
-    top: 8px;
     width: 44px;
     height: 44px;
     display: grid;
@@ -120,17 +126,13 @@
   .iconbtn:active { transform: scale(.94); }
   .iconbtn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
   .iconbtn svg { width: 22px; height: 22px; display: block; }
-  #btn-player { left: 8px; }
-  #btn-skins { left: 60px; }
-  #btn-gear { left: 112px; }
-  #btn-sound { right: 8px; }
   #stage[data-playing="1"] .iconbtn { opacity: .18; pointer-events: none; }
   /* Once it has crashed none of these do anything, so stop offering them. */
   #stage[data-crashed="1"] .iconbtn { display: none; }
   #stage[data-crashed="1"] canvas { cursor: default; }
   /* The pause control is the exception: it exists only while playing, and
      stays live while the others fade out. */
-  #btn-pause { right: 60px; display: none; }
+  #btn-pause { display: none; }
   #stage[data-playing="1"] #btn-pause { display: grid; opacity: 1; pointer-events: auto; }
   .iconbtn .off-slash { display: none; }
   .iconbtn[aria-pressed="true"] .off-slash { display: block; }
@@ -494,6 +496,7 @@
 <div id="stage" data-playing="0">
   <canvas id="game" width="576" height="1024" role="img" aria-label="DreyBird — tap to flap"></canvas>
 
+  <div class="tools tools-left">
   <button id="btn-player" class="iconbtn" type="button" aria-label="Players">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <circle cx="12" cy="8" r="3.6"></circle>
@@ -521,7 +524,9 @@
       <path d="M12 2.6v2.2M12 19.2v2.2M21.4 12h-2.2M4.8 12H2.6M18.6 5.4l-1.6 1.6M7 17l-1.6 1.6M18.6 18.6 17 17M7 7 5.4 5.4"></path>
     </svg>
   </button>
+  </div>
 
+  <div class="tools tools-right">
   <button id="btn-pause" class="iconbtn" type="button" aria-label="Pause">
     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
       <rect x="7" y="5" width="3.6" height="14" rx="1"></rect>
@@ -542,6 +547,7 @@
       </g>
     </svg>
   </button>
+  </div>
 
   <div id="sheet" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Shop">
     <h2>Shop</h2>
