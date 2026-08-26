@@ -1156,6 +1156,47 @@
   const GUST_DUR = 70, GUST_FORCE = 0.17;
   const FOG_DUR = 150;
 
+  /* ── portals ──────────────────────────────────────────────────────
+     A rare pipe with a wider opening and a door hanging in the middle
+     of it. It pulls you toward the door; flying into the door drops you
+     into the Roost. The pull only ever draws you toward the gap centre,
+     so it cannot push you into the pipe body — safe by construction
+     rather than by tuning. Slip past the door and the pipe scores like
+     any other: taking it is a choice, not something done to you. */
+  const PORTAL_START = 15;      // no portal before this pipe index
+  const PORTAL_RAMP = 0.0015;   // chance gained per pipe after that
+  const PORTAL_MAX = 0.022;     // ceiling on the per-pipe chance
+  const PORTAL_H = 176;         // the door's opening, trimmed to fit by `room`
+  const RING_R = 16;            // the door itself: a 32px target in a 176px gap
+
+  /* How far ahead of the door the pull reaches, in PIXELS — and the number
+     matters more than it looks. Pipes stand SPACING apart with PIPE_W of
+     that taken by the pipe itself, so there are only 104px of clear air
+     between one pair and the next. A pull reaching 150px would take hold
+     while the bird was still threading the PREVIOUS pipe and could drag it
+     into that pipe's lip: a death the player did not earn, which is the one
+     thing this mechanic must never cause.
+
+     The bound: the previous pipe's right edge sits at p.x - 104, and the
+     bird's box starts at 64 - hitW/2, which is 53.9 for the widest bird in
+     the roster. Requiring p.x - 104 < 53.9 gives p.x < 157.9, so the pull
+     may begin no further out than 93.9px. Being in pixels it also holds
+     under assist, where the slower world merely stretches the window in
+     ticks without ever moving it in space. */
+  const PULL_RANGE = 88;
+  const PULL_RAMP = 40;         // ticks of fade-in, so it never snatches
+  const PULL_K = 0.010;         // spring toward the gap centre
+  const PULL_D = 0.045;         // damping, so the approach settles
+  const PULL_MAX = 0.20;        // ceiling; G.pullMax derives the real one per run
+
+  const ROOST_TICKS = 480;      // hard cap on a visit, so nothing can stall
+  const ROOST_SPEED = 1.8;     // the Roost drifts slower than the world
+  const ROOST_COINS = 12;       // coins on the line you fly
+  const ROOST_COIN = 2;         // each, through earn(), so coinMul applies
+  const ROOST_PHASE = { sky0: '#1a0b3d', sky1: '#4a2378', cloud: '#6b3fa0',
+                        city: '#150835', dirt: '#2a1550', grass: '#7f5ce0',
+                        sun: '#ffe9ff', star: 1 };
+
   /* ── feathers ─────────────────────────────────────────────────────
      Mild global perks, unlocked by level and equipped into slots. Like
      traits, strictly bird-side. Prestige will later make some permanent,
@@ -1377,6 +1418,7 @@
   const bird = { x: BIRD_X, y: 240, py: 240, vy: 0, rot: 0, prot: 0, wing: 0 };
   const pipes = [];
   const powers = [];
+  const roostCoins = [];   // the Roost's line, alive only while you are in it
   const puffs = [];
   const trail = [];          // cosmetic only — never touched by collision
 
@@ -1402,7 +1444,13 @@
     levelUp: 0,
     beatBest: false,
     seed: 0,
+    portalAt: null,             // pipe index of this run's portal, if any
+    portalPipe: null,           // the live portal pipe, while one is on screen
+    forcePortalAt: -1,          // test hook only; -1 leaves placement to the seed
+    pullMax: PULL_MAX,          // derived per run; see startPlay
+    roost: null,                // the bonus room, while you are in it
     rng: mulberry32(1),
+    rng2: mulberry32(2),
     maxVy: MAX_VY,
     hitW: HIT_W,
     hitH: HIT_H,
@@ -1468,6 +1516,12 @@
     G.patStep = 0;
     G.gust = null;
     G.fog = null;
+    // Belt and braces with startPlay, and load-bearing: quitting from the
+    // pause sheet mid-Roost comes through here rather than through a run.
+    G.portalAt = null;
+    G.portalPipe = null;
+    G.roost = null;
+    roostCoins.length = 0;
     G.state = READY;
     syncStage();
   }
@@ -1496,8 +1550,18 @@
     // would make the stream position depend on how the run is going.
     const rPat = G.rng(), rDrift = G.rng();
     const rHaz = G.rng(), rKindH = G.rng(), rAmp = G.rng(), rPhase = G.rng();
+    // The portal's own stream, drawn unconditionally for the same reason.
+    const rPortal = G.rng2(), rArc = G.rng2();
 
     const idx = G.pipeIndex++;
+
+    /* At most one portal a run, and it is decided when the pipe spawns
+       rather than when you take it — otherwise whether a later pipe is a
+       portal would depend on how well you were flying, and the world would
+       stop being a pure function of the seed. */
+    const pChance = clamp((idx - PORTAL_START) * PORTAL_RAMP, 0, PORTAL_MAX);
+    const portal = G.portalAt == null && (idx === G.forcePortalAt || rPortal < pChance);
+    if (portal) G.portalAt = idx;
 
     // Start, or continue, a formation.
     if (idx < CALM_PIPES || !G.pattern || G.patStep >= G.pattern.steps.length) {
@@ -1530,14 +1594,29 @@
     gap = clamp(gap, margin, GY - margin);
     G.lastGap = gap;
 
-    const pipe = { x, px: x, gap, base: gap, h, scored: false, amp, phase: rPhase * Math.PI * 2 };
+    /* `h` stays exactly what it always was, because it is what the clamp
+       above and G.lastGap were computed from. The wider portal opening
+       rides alongside it as `open`, which is what collision and drawing
+       use — so widening a portal cannot shift any other pipe. */
+    /* Trimmed to the room the chosen centre leaves, so a portal near the
+       ground or the ceiling opens less rather than opening off the screen —
+       and never narrower than the pipe would have been anyway. */
+    const room = 2 * (Math.min(gap, GY - gap) - amp) - 20;
+    const open = portal ? clamp(PORTAL_H, h, Math.max(h, room)) : h;
+    const pipe = { x, px: x, gap, base: gap, h, open, scored: false, amp,
+                   phase: rPhase * Math.PI * 2, portal, arc: rArc, used: false };
     pipes.push(pipe);
+    if (portal) G.portalPipe = pipe;
 
-    if (hazard === 'gust') {
+    /* A portal keeps its mover, because `amp` feeds the reachability clamp
+       above and dropping it would move the gap — and every pipe after it.
+       Gust and fog are suppressed instead: they change nothing geometric,
+       and a crosswind fighting the pull would only muddy the read. */
+    if (hazard === 'gust' && !portal) {
       // Scheduled ahead so the telegraph has time to appear.
       G.gust = { at: G.ticks + GUST_LEAD, until: G.ticks + GUST_LEAD + GUST_DUR,
                  force: (rPhase < 0.5 ? -1 : 1) * GUST_FORCE };
-    } else if (hazard === 'fog') {
+    } else if (hazard === 'fog' && !portal) {
       G.fog = { until: G.ticks + FOG_DUR, y: clamp(gap - 40, 40, GY - 140) };
     }
 
@@ -1572,6 +1651,14 @@
     // A seed fully determines the pipes and power-ups of a run.
     G.seed = seed == null ? randomSeed() : (seed >>> 0);
     G.rng = mulberry32(G.seed);
+    /* A second stream, from the same seed. Portals draw from this one so
+       spawnPipe's ten-draw budget is untouched and every seed that existed
+       before portals did keeps generating the same pipes it always did. */
+    G.rng2 = mulberry32((G.seed ^ 0x9e3779b9) >>> 0);
+    G.portalAt = null;
+    G.portalPipe = null;
+    G.roost = null;
+    roostCoins.length = 0;
     G.lastGap = 200;
 
     // Physics are fixed for the whole run, here, once.
@@ -1591,6 +1678,12 @@
     G.flapV   = FLAP_V  * (G.runAssist ? ASSIST.flap : 1) * t.flap;
     G.gap     = GAP     + (G.runAssist ? ASSIST.gap : 0);
     G.speed   = SPEED   * (G.runAssist ? ASSIST.speed : 1);
+    /* Derived rather than fixed. The pull must never be strong enough to
+       hold the bird up on its own, or "do nothing and you sink" would stop
+       being true — and that is the property that makes a portal refusable.
+       Tying the ceiling to this run's own gravity keeps it true even for
+       the lightest loadout the game can assemble. */
+    G.pullMax = Math.min(PULL_MAX, G.gravity * 0.55);
     G.maxVy   = MAX_VY * t.maxVy;
     G.hitW    = HIT_W * t.hit;
     G.hitH    = HIT_H * t.hit;
@@ -1678,8 +1771,95 @@
   function hitsPipe(p) {
     const bx = bird.x - G.hitW / 2, by = bird.y - G.hitH / 2;
     if (bx + G.hitW < p.x || bx > p.x + PIPE_W) return false;
-    const h = p.h || G.gap;
+    const h = p.open || p.h || G.gap;
     return by < p.gap - h / 2 || by + G.hitH > p.gap + h / 2;
+  }
+
+  /* ── the Roost ────────────────────────────────────────────────────
+     Through the door is a place, not an effect. Entering SUSPENDS the run
+     rather than saving it: nothing ticks `pipes` or `powers` while
+     G.roost is set, so the world outside is not stored anywhere — it is
+     simply left alone, and resumes on the way out because it never
+     changed. The only thing borrowed is the bird, and that is handed back
+     exactly as it was. */
+  function enterRoost(p) {
+    p.used = true;
+    /* Freezing mid-flight would leave px lerping against a stale previous
+       x, and the whole suspended world would shiver a couple of pixels
+       every frame for the length of the visit. */
+    for (const q of pipes) q.px = q.x;
+    for (const q of powers) q.px = q.x;
+    bird.py = bird.y;
+    G.roost = { t: 0, y: bird.y, vy: bird.vy, rot: bird.rot, got: 0 };
+
+    /* The line comes from the portal's own draw rather than from G.rng2,
+       so entering consumes nothing from either stream — what the world
+       generates can never depend on whether the player went in. */
+    const r = mulberry32(((G.seed ^ 0x51ed270b) + Math.floor(p.arc * 0xffffff)) >>> 0);
+    const amp = 60 + r() * 60, phase = r() * Math.PI * 2, freq = 0.009 + r() * 0.007;
+    roostCoins.length = 0;
+    for (let i = 0; i < ROOST_COINS; i++) {
+      const x = 210 + i * 46;
+      roostCoins.push({ x, px: x, y: clamp(236 + Math.sin(x * freq + phase) * amp, 70, GY - 70),
+                        got: false });
+    }
+    G.flash = reduceMotion ? 0 : 0.9;
+    audio.power();
+  }
+
+  function tickRoost() {
+    const R = G.roost;
+    R.t++;
+    // No ts here: a bonus room in slow motion is only a longer bonus room.
+    bird.vy = clamp(bird.vy + G.gravity, -20, G.maxVy);
+    bird.y += bird.vy;
+    // Nothing simulated reads these; they keep the sky alive so the room
+    // does not sit there statically painted.
+    G.scroll += ROOST_SPEED;
+    G.cycle += ROOST_SPEED;
+
+    for (const c of roostCoins) {
+      c.px = c.x;
+      c.x -= ROOST_SPEED;
+      if (c.got) continue;
+      // Forgiving here, unlike the door: this is a pickup, and there is
+      // nothing to lose by being generous with it.
+      if (Math.abs(c.x - bird.x) < 9 + G.hitW / 2 && Math.abs(c.y - bird.y) < 9 + G.hitH / 2) {
+        c.got = true;
+        R.got++;
+        earn(ROOST_COIN);
+        audio.score();
+        puff(c.x, c.y, '#ffe9a8', 6);
+      }
+    }
+
+    // The edges hold you rather than end you. die() is never reachable
+    // from in here, which is the whole promise of the place.
+    if (bird.y + G.hitH / 2 >= GY) { bird.y = GY - G.hitH / 2; bird.vy = Math.min(bird.vy, 0); }
+    else if (bird.y - G.hitH / 2 < 0) { bird.y = G.hitH / 2; bird.vy = 0; }
+
+    const target = bird.vy < 0 ? -0.42 : clamp(bird.vy * 0.13, -0.42, 1.5);
+    bird.rot += (target - bird.rot) * 0.18;
+
+    const last = roostCoins[roostCoins.length - 1];
+    // Two ways out, and ROOST_TICKS is the hard one: no layout, and no
+    // test harness, can leave a run parked in here.
+    if (R.t >= ROOST_TICKS || (last && last.x < -30)) exitRoost();
+  }
+
+  function exitRoost() {
+    const R = G.roost;
+    /* Put back exactly what was borrowed. Returning the bird to the height
+       it left at is what makes this an interlude rather than a teleport
+       into whatever happens to be waiting — and since it left from the
+       centre of the widest opening in the game, the spot is safe. */
+    bird.y = R.y;  bird.py = R.y;
+    bird.vy = R.vy;
+    bird.rot = R.rot;  bird.prot = R.rot;
+    G.roost = null;
+    roostCoins.length = 0;
+    G.flash = reduceMotion ? 0 : 0.9;
+    audio.power();
   }
 
   function tick() {
@@ -1698,6 +1878,8 @@
       bird.rot = Math.sin(G.ticks / 15) * 0.07;
       G.scroll += G.speed;
       G.cycle += G.speed;
+    } else if (G.state === PLAYING && G.roost) {
+      tickRoost();
     } else if (G.state === PLAYING) {
       G.runTicks++;
       bird.vy = clamp(bird.vy + G.gravity * ts, -20, G.maxVy);
@@ -1720,10 +1902,30 @@
         if (G.ticks >= G.gust.until) G.gust = null;
       }
       if (G.fog && G.ticks >= G.fog.until) G.fog = null;
+
+      /* The portal's pull. Six things make it safe rather than merely
+         gentle: it is capped, so tuning K and D can never break it; the cap
+         sits below this run's gravity, so doing nothing still sinks; flap()
+         assigns bird.vy outright rather than adding to it, so a single tap
+         erases everything the pull has gathered; the spring reverses sign
+         at the gap centre, so it never has a component toward a lip of its
+         own pipe; PULL_RANGE confines it to clear air, so it cannot steer
+         you into the pipe before; and it scales by ts exactly as gravity
+         does, so slow-mo preserves that margin rather than approximating
+         it. Refusing a portal is possible by argument, not by playtesting. */
+      const pp = G.portalPipe;
+      if (pp && !pp.used && pp.x <= bird.x + PULL_RANGE && pp.x + PIPE_W > bird.x - G.hitW / 2) {
+        const ramp = clamp((bird.x + PULL_RANGE - pp.x) / PULL_RAMP, 0, 1);
+        const raw = PULL_K * (pp.gap - bird.y) - PULL_D * bird.vy;
+        bird.vy += clamp(raw, -G.pullMax, G.pullMax) * ramp * ts;
+      }
       for (const q of powers) { q.px = q.x; q.x -= G.speed * ts; q.bob += 0.07; }
 
       // Recycle: drop what has left the screen, keep three pairs ahead.
-      while (pipes.length && pipes[0].x + PIPE_W < -10) pipes.shift();
+      while (pipes.length && pipes[0].x + PIPE_W < -10) {
+        if (pipes[0] === G.portalPipe) G.portalPipe = null;
+        pipes.shift();
+      }
       while (powers.length && powers[0].x + PU_R < -10) powers.shift();
       const last = pipes[pipes.length - 1];
       if (!last || last.x < W + 40 + SPACING) spawnPipe((last ? last.x : W) + SPACING);
@@ -1754,6 +1956,17 @@
           puff(q.x, q.y, q.kind === 'shield' ? '#7fdcff' : '#c9a0ff', 10);
         }
       }
+      /* The door is the bird's centre against the ring's own radius, not
+         the generous box the power-ups use. A pickup should be forgiving; a
+         door must not swallow a bird that visibly passed outside it — the
+         same honesty the gust telegraph is built on. When it fires the bird
+         is within RING_R of the centre of a 176px opening, so the pipe
+         itself cannot be hit on the same tick. */
+      if (pp && !pp.used) {
+        const ddx = pp.x + PIPE_W / 2 - bird.x, ddy = pp.gap - bird.y;
+        if (ddx * ddx + ddy * ddy < RING_R * RING_R) enterRoost(pp);
+      }
+
       if (G.slow > 0) G.slow--;
       if (G.invuln > 0) G.invuln--;
 
@@ -1996,7 +2209,7 @@
   }
 
   function drawPipe(p, x) {
-    const h = p.h || G.gap;
+    const h = p.open || p.h || G.gap;
     const top = p.gap - h / 2, bot = p.gap + h / 2;
     const pal = (G.world && G.world.pipes) || PIPE_DEFAULT;
     const body = pal.body, light = pal.light, dark = pal.dark, edge = pal.edge;
@@ -2021,6 +2234,51 @@
     lip(top - LIP_H);
     column(bot + LIP_H, GY - bot - LIP_H);
     lip(bot);
+  }
+
+  /* The door. A dark mouth with a lit rim, so it reads as a way through
+     rather than as another coin. The shimmer pulses in size and alpha but
+     is never absent, the same rule the gust telegraph follows: a marker
+     that vanishes half the time is a poor marker. */
+  function drawDoor(p, x) {
+    const cx = x + PIPE_W / 2, cy = p.gap;
+    const beat = reduceMotion ? 0 : Math.sin(G.ticks / 9);
+    ctx.save();
+    ctx.globalAlpha = 0.22 + 0.10 * beat;
+    ctx.fillStyle = '#c9a0ff';
+    ctx.beginPath(); ctx.arc(cx, cy, RING_R + 9 + beat * 2, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#1a0b3d';
+    ctx.beginPath(); ctx.arc(cx, cy, RING_R - 2, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = 3; ctx.strokeStyle = '#20160a';
+    ctx.beginPath(); ctx.arc(cx, cy, RING_R, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = 2; ctx.strokeStyle = '#e6d2ff';
+    ctx.beginPath(); ctx.arc(cx, cy, RING_R, 0, Math.PI * 2); ctx.stroke();
+    // Four marks turning inside the mouth, so it looks like a way in.
+    const spin = reduceMotion ? 0 : G.ticks * 0.05;
+    ctx.fillStyle = '#ffe9ff';
+    for (let i = 0; i < 4; i++) {
+      const a = spin + i * Math.PI / 2;
+      ctx.fillRect(Math.round(cx + Math.cos(a) * (RING_R - 6) - 1.5),
+                   Math.round(cy + Math.sin(a) * (RING_R - 6) - 1.5), 3, 3);
+    }
+    ctx.restore();
+  }
+
+  function drawRoostCoin(c, x) {
+    const beat = reduceMotion ? 0 : Math.sin(G.ticks / 7 + c.y) * 1.5;
+    ctx.save();
+    ctx.globalAlpha = 0.3;
+    ctx.fillStyle = '#ffe9a8';
+    ctx.beginPath(); ctx.arc(x, c.y + beat, 12, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#c9921f';
+    ctx.beginPath(); ctx.arc(x, c.y + beat, 8, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffe07a';
+    ctx.beginPath(); ctx.arc(x, c.y + beat, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff6cf';
+    ctx.fillRect(Math.round(x - 1), Math.round(c.y + beat - 3), 2, 6);
+    ctx.restore();
   }
 
   function drawPower(q, x) {
@@ -2074,6 +2332,8 @@
   /* A gust you cannot see coming is unfair rather than hard, so it is
      announced before it bites and stays marked while it blows. */
   function drawWeather() {
+    // The world's weather belongs to the world, not to the room next door.
+    if (G.roost) return;
     if (G.fog) {
       const fade = clamp((G.fog.until - G.ticks) / 40, 0, 1);
       const g = ctx.createLinearGradient(0, G.fog.y - 30, 0, G.fog.y + 110);
@@ -2082,6 +2342,17 @@
       g.addColorStop(1, 'rgba(226,236,244,0)');
       ctx.fillStyle = g;
       ctx.fillRect(0, G.fog.y - 30, W, 140);
+    }
+
+    /* The door announces itself the moment it comes on screen — around
+       110 ticks before the pull can even reach, against the pull's own 43.
+       Pulsing in size, never blinking out, by the same rule as the gust. */
+    const pp = G.portalPipe;
+    if (pp && !pp.used && pp.x < W + 40) {
+      const near = pp.x <= bird.x + PULL_RANGE;
+      const pulse = !reduceMotion && Math.floor(G.ticks / 7) % 2 === 0;
+      textOut(ctx, near ? 'PULLING YOU IN' : 'PORTAL AHEAD', W / 2, 126,
+        pulse ? 9 : 8, near ? '#e6d2ff' : '#c9a0ff', '#20160a');
     }
 
     if (!G.gust) return;
@@ -2132,14 +2403,20 @@
     if (G.state === PLAYING || G.state === DYING) {
       textOut(ctx, String(G.score), W / 2, 62, 24, '#ffffff', '#20160a');
     }
-    if (G.slow > 0 && G.state === PLAYING) {
+    if (G.slow > 0 && G.state === PLAYING && !G.roost) {
       const w = 74, x = (W - w) / 2, y = 88;
       ctx.fillStyle = 'rgba(20,16,34,.45)'; ctx.fillRect(x - 1, y - 1, w + 2, 7);
       ctx.fillStyle = '#c9a0ff';            ctx.fillRect(x, y, w * clamp(G.slow / G.puTicks, 0, 1), 5);
       textOut(ctx, 'SLOW-MO', W / 2, y + 15, 6, '#e5d4ff', '#231a3a');
     }
-    if (G.shield && G.state === PLAYING) {
+    if (G.shield && G.state === PLAYING && !G.roost) {
       textOut(ctx, G.shield > 1 ? 'SHIELD x' + G.shield : 'SHIELD', W / 2, G.slow > 0 ? 118 : 92, 6, '#cdf0ff', '#123244');
+    }
+    if (G.roost) {
+      // The score is deliberately still on screen and deliberately still:
+      // nothing you do in here moves it.
+      textOut(ctx, 'THE ROOST', W / 2, 92, 8, '#e6d2ff', '#20160a');
+      textOut(ctx, G.roost.got + ' / ' + ROOST_COINS, W / 2, 110, 7, '#ffe07a', '#20160a');
     }
   }
 
@@ -2265,7 +2542,7 @@
   function render(alpha) {
     const by = lerp(bird.py, bird.y, alpha);
     const brot = lerp(bird.prot, bird.rot, alpha);
-    const ph = phaseNow();
+    const ph = G.roost ? ROOST_PHASE : phaseNow();
 
     ctx.setTransform(RS, 0, 0, RS, 0, 0);
     if (G.shake > 0.2) {
@@ -2274,8 +2551,16 @@
 
     drawSky(ph);
 
-    for (const p of pipes) drawPipe(p, Math.round(lerp(p.px, p.x, alpha)));
-    for (const q of powers) if (!q.got) drawPower(q, lerp(q.px, q.x, alpha));
+    if (G.roost) {
+      for (const c of roostCoins) if (!c.got) drawRoostCoin(c, lerp(c.px, c.x, alpha));
+    } else {
+      for (const p of pipes) {
+        const px = Math.round(lerp(p.px, p.x, alpha));
+        drawPipe(p, px);
+        if (p.portal && !p.used) drawDoor(p, px);
+      }
+      for (const q of powers) if (!q.got) drawPower(q, lerp(q.px, q.x, alpha));
+    }
 
     // Behind the bird, so it reads as something left in its wake.
     for (const t of trail) {
@@ -3429,6 +3714,13 @@
       seed: () => G.seed,
       trailParticles: () => trail,
       PATTERNS, GAP_FLOOR, CALM_PIPES, HAZARD_START,
+      PORTAL_START, PORTAL_H, RING_R, PULL_RANGE, ROOST_TICKS, ROOST_COINS, ROOST_COIN,
+      roostCoins: () => roostCoins,
+      // Without a way to place one, testing the door means flying 15+ pipes
+      // and hitting a 32px target — expensive, and flaky enough to be useless.
+      forcePortal: n => { G.portalAt = null; G.forcePortalAt = n; },   // -1 restores the seed
+      inRoost: () => !!G.roost,
+      roostInfo: () => (G.roost ? { t: G.roost.t, got: G.roost.got } : null),
       run: () => ({ pipeIndex: G.pipeIndex, pattern: G.pattern && G.pattern.id,
                     gust: G.gust && { at: G.gust.at, until: G.gust.until, force: G.gust.force },
                     fog: G.fog && { until: G.fog.until, y: G.fog.y } }),

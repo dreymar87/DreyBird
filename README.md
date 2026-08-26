@@ -195,6 +195,29 @@ Your best score is kept in the browser, on your device.
 scrolling pipes, ground and ceiling collisions, a forgiving hitbox, and
 bronze / silver / gold / platinum medals at 10, 20, 30 and 40 points.
 
+**Portals and the Roost.** Rarely — about a third of runs that get past
+pipe 40, never before pipe 15, and never twice — a pipe carries a door: a
+wider opening with a shimmering ring hanging in the middle of it. It
+announces itself well before it can reach you, then pulls you gently toward
+the ring.
+
+Fly into the ring and you drop into **the Roost**, a quiet violet room with
+a line of coins to fly and nothing at all that can hurt you. Your run does
+not end while you are in there — it waits. The pipes, the power-ups and the
+generator are all exactly where you left them when you come back out, and
+the bird returns to the height it left at.
+
+Two rules hold the whole thing together. **The pull can never kill you:** it
+only ever draws you toward the centre of the gap, it reaches only as far as
+the clear air between pipes, and its strength is derived from your own run's
+gravity so that letting go always still sinks you. **And you can refuse
+it:** the opening is wide enough to fly past the ring on either side, and a
+single flap erases everything the pull has gathered. Taking the portal is a
+choice, never something done to you.
+
+Score does not move in the Roost. Coins are the reward; score stays a pure
+count of pipes cleared.
+
 **Day/night cycle.** The sky drifts through day → sunset → night → dawn as
 you fly. Stars come out, city windows light up, the ground cools off. It's
 cosmetic — it never changes the difficulty.
@@ -289,10 +312,11 @@ npm run test:dynamics        # 16  formations and hazards
 npm run test:progression     # 39  XP, traits, perks, payouts
 npm run test:crash           #  9  crash survival
 npm run test:polish          # 10  juice, music, tutorial
+npm run test:portal          # 19  portals, the pull, the Roost
 npm run icons                #     regenerate the app icons
 ```
 
-178 checks in total.
+197 checks in total.
 
 `smoke.mjs` drops screenshots of each game state into `test/shots/`.
 `pwa.mjs` serves the repo on localhost, waits for the service worker to take
