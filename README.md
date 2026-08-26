@@ -218,6 +218,19 @@ choice, never something done to you.
 Score does not move in the Roost. Coins are the reward; score stays a pure
 count of pipes cleared.
 
+**A stats screen.** The chart button in the top-left opens it. Best, level,
+games and coins across the top; a bar chart of your last 30 runs with the
+average marked; then the totals — pipes cleared, power-ups taken, longest
+single flight, Roosts found, and your average run — and a medal case broken
+out by tier rather than summed into one number.
+
+Four of those had been recorded since the shop was built and displayed
+nowhere at all. Only the run history is drawn as a chart, because it is the
+only one of them that is about change over time; a bar chart of "games
+played" would say nothing the number does not. The medal case stays a
+labelled list on purpose — four coloured bars for bronze through platinum
+would lean on exactly the hues a colour-blind reader cannot separate.
+
 **Day/night cycle.** The sky drifts through day → sunset → night → dawn as
 you fly. Stars come out, city windows light up, the ground cools off. It's
 cosmetic — it never changes the difficulty.
@@ -313,10 +326,11 @@ npm run test:progression     # 39  XP, traits, perks, payouts
 npm run test:crash           #  9  crash survival
 npm run test:polish          # 10  juice, music, tutorial
 npm run test:portal          # 19  portals, the pull, the Roost
+npm run test:stats           # 19  the stats screen and its chart
 npm run icons                #     regenerate the app icons
 ```
 
-197 checks in total.
+216 checks in total.
 
 `smoke.mjs` drops screenshots of each game state into `test/shots/`.
 `pwa.mjs` serves the repo on localhost, waits for the service worker to take

@@ -373,6 +373,54 @@
     margin: 4px 0 -4px;
   }
 
+  /* Stats. The numbers are tiles; only the run history is a chart, because
+     only it is about change over time. The medal case stays a labelled list
+     rather than four coloured bars — bronze against gold is exactly the pair
+     colour-blind readers cannot separate, and a label never has that
+     problem. */
+  #stats-body { overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .tile {
+    border: 1px solid rgba(255, 255, 255, .14);
+    border-radius: 3px;
+    background: rgba(255, 255, 255, .05);
+    padding: 7px 6px;
+    text-align: center;
+  }
+  .tile b { display: block; font-size: 13px; color: #ffe07a; letter-spacing: .02em; }
+  .tile span { display: block; margin-top: 4px; font-size: 7px; color: rgba(255, 255, 255, .62); }
+  .tile.wide { grid-column: span 3; }
+  .tile.wide b { font-size: 16px; }
+
+  .chart {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;                       /* the surface gap between adjacent bars */
+    height: 74px;
+  }
+  .chart li {
+    flex: 1 1 0;
+    min-width: 3px;
+    /* Anchored to the baseline, rounded only at the data end. */
+    background: #c08a1e;
+    border-radius: 3px 3px 0 0;
+    min-height: 2px;
+  }
+  .chart-wrap { position: relative; }
+  .chart-rule {
+    position: absolute; left: 0; right: 0;
+    border-top: 1px dashed rgba(255, 255, 255, .3);   /* recessive, behind the data */
+    pointer-events: none;
+  }
+  .chart-foot { display: flex; justify-content: space-between; margin-top: 5px; font-size: 6px;
+                color: rgba(255, 255, 255, .55); }
+  .sr {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  }
   .sheet-actions { display: flex; gap: 6px; }
   .sheet-btn {
     font-family: "Press Start 2P", ui-monospace, monospace;
@@ -462,6 +510,11 @@
     </svg>
   </button>
 
+  <button id="btn-stats" class="iconbtn" type="button" aria-label="Stats">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M4 20V10"></path><path d="M10 20V4"></path><path d="M16 20v-7"></path><path d="M22 20H2"></path>
+    </svg>
+  </button>
   <button id="btn-gear" class="iconbtn" type="button" aria-label="Settings">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <circle cx="12" cy="12" r="3.2"></circle>
@@ -510,6 +563,14 @@
     <div class="sheet-actions" style="margin-top:auto">
       <button id="paused-resume" class="sheet-btn" type="button">Resume</button>
       <button id="paused-quit" class="sheet-btn" type="button">End run</button>
+    </div>
+  </div>
+
+  <div id="stats" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Stats">
+    <h2>Stats</h2>
+    <div id="stats-body"></div>
+    <div class="sheet-actions">
+      <button id="stats-close" class="sheet-btn" type="button">Back</button>
     </div>
   </div>
 
@@ -788,6 +849,7 @@
   /* ── profiles ─────────────────────────────────────────────────────
      A profile is who is playing, not an account: no password, no server.
      Several people share a device; each keeps their own bird and record. */
+  const RECENT_MAX = 30;        // runs kept for the history chart
   const MAX_NAME = 12;
 
   function newProfile(name) {
@@ -810,7 +872,8 @@
       taught: false,         // has this player finished a run yet?
       best: 0,
       created: Date.now(),
-      stats: { games: 0, pipes: 0, longest: 0, powers: 0, bronze: 0, silver: 0, gold: 0, platinum: 0 }
+      stats: { games: 0, pipes: 0, longest: 0, powers: 0, roosts: 0,
+               bronze: 0, silver: 0, gold: 0, platinum: 0, recent: [] }
     };
   }
 
@@ -841,8 +904,14 @@
       created: num(p.created, d.created),
       stats: {
         games: num(st.games, 0), pipes: num(st.pipes, 0), longest: num(st.longest, 0),
-        powers: num(st.powers, 0), bronze: num(st.bronze, 0), silver: num(st.silver, 0),
-        gold: num(st.gold, 0), platinum: num(st.platinum, 0)
+        powers: num(st.powers, 0), roosts: num(st.roosts, 0),
+        bronze: num(st.bronze, 0), silver: num(st.silver, 0),
+        gold: num(st.gold, 0), platinum: num(st.platinum, 0),
+        // The only stat that is not a running total: the last few scores,
+        // kept so the run history has something to draw.
+        recent: Array.isArray(st.recent)
+          ? st.recent.filter(n => Number.isFinite(n)).map(n => Math.max(0, Math.floor(n))).slice(-RECENT_MAX)
+          : []
       }
     };
   }
@@ -1741,6 +1810,8 @@
     st.games++;
     profile.taught = true;          // one finished run is the whole tutorial
     st.longest = Math.max(st.longest, G.runTicks);
+    st.recent.push(G.score);
+    if (st.recent.length > RECENT_MAX) st.recent.splice(0, st.recent.length - RECENT_MAX);
     if (!G.runAssist && G.score > profile.best) profile.best = G.score;
     const m = medalFor(G.score);
     const medal = m ? m.name.toLowerCase() : null;
@@ -1803,6 +1874,7 @@
       roostCoins.push({ x, px: x, y: clamp(236 + Math.sin(x * freq + phase) * amp, 70, GY - 70),
                         got: false });
     }
+    if (profile) profile.stats.roosts++;
     G.flash = reduceMotion ? 0 : 0.9;
     audio.power();
   }
@@ -2729,7 +2801,8 @@
     // stuck parsing forever — a hang, which is the very thing this screen
     // exists to avoid.
     if (crashed) { setTimeout(() => location.reload(), 0); return; }
-    if (!sheet.hidden || !playersSheet.hidden || !settingsSheet.hidden || !pausedSheet.hidden) return;
+    if (!sheet.hidden || !playersSheet.hidden || !settingsSheet.hidden ||
+        !statsSheet.hidden || !pausedSheet.hidden) return;
     audio.ensure();
     if (music.on && !audio.muted) music.start();
     askPersist();
@@ -2750,6 +2823,7 @@
       if (!sheet.hidden) closeSheet();
       else if (!playersSheet.hidden) closePlayers();
       else if (!settingsSheet.hidden) closeSettings();
+      else if (!statsSheet.hidden) closeStats();
       else if (!pausedSheet.hidden) resumeRun();
     }
   });
@@ -3193,6 +3267,161 @@
   btnGear.addEventListener('click', openSettings);
   document.getElementById('settings-close').addEventListener('click', closeSettings);
 
+  /* ══════════════════ stats ══════════════════
+
+     Four of these numbers have been recorded since the shop was built and
+     shown nowhere: pipes, power-ups, the longest flight, and the medal case
+     broken out by tier rather than summed.
+
+     Only one thing here is a chart. Totals are totals — a bar chart of
+     "games played" says nothing a number does not. The run history is the
+     exception, because it is the only figure that is about change over
+     time. The medal case stays a labelled list on purpose: four coloured
+     bars for bronze/silver/gold/platinum would lean on exactly the hues a
+     colour-blind reader cannot separate, and the label carries it instead. */
+  const btnStats = document.getElementById('btn-stats');
+  const statsSheet = document.getElementById('stats');
+  const statsBody = document.getElementById('stats-body');
+
+  const MEDAL_ROWS = [['platinum', 'Platinum'], ['gold', 'Gold'],
+                      ['silver', 'Silver'], ['bronze', 'Bronze']];
+
+  // Ticks at 60Hz into something a person reads.
+  function asClock(ticks) {
+    const total = Math.round(ticks / 60);
+    const m = Math.floor(total / 60), sec = total % 60;
+    return m ? m + 'm ' + sec + 's' : sec + 's';
+  }
+
+  function tile(host, value, label, wide) {
+    const el = document.createElement('div');
+    el.className = wide ? 'tile wide' : 'tile';
+    const b = document.createElement('b');
+    b.textContent = String(value);
+    const sp = document.createElement('span');
+    sp.textContent = label;
+    el.append(b, sp);
+    host.appendChild(el);
+    return el;
+  }
+
+  function buildStats() {
+    statsBody.textContent = '';
+    if (!profile) return;
+    const st = profile.stats;
+    const runs = (st.recent || []);
+
+    const head = document.createElement('div');
+    head.className = 'tiles';
+    tile(head, profile.best, 'BEST', true);
+    tile(head, 'LV ' + levelFor(profile.xp || 0), 'LEVEL');
+    tile(head, st.games, st.games === 1 ? 'GAME' : 'GAMES');
+    tile(head, profile.coins, 'COINS');
+    statsBody.appendChild(head);
+
+    /* The run history. One series, so no legend — the heading names it.
+       Bars sit on the baseline and are rounded only at the data end. */
+    const title = document.createElement('p');
+    title.className = 'sheet-section';
+    title.textContent = 'LAST ' + Math.min(RECENT_MAX, Math.max(runs.length, 1)) + ' RUNS';
+    statsBody.appendChild(title);
+
+    if (!runs.length) {
+      const none = document.createElement('p');
+      none.className = 'hint';
+      none.textContent = 'No finished runs yet. Fly one and it will show up here.';
+      statsBody.appendChild(none);
+    } else {
+      const top = Math.max(...runs, 1);
+      const avg = runs.reduce((a, b) => a + b, 0) / runs.length;
+      const wrap = document.createElement('div');
+      wrap.className = 'chart-wrap';
+
+      const list = document.createElement('ul');
+      list.className = 'chart';
+      runs.forEach((v, i) => {
+        const li = document.createElement('li');
+        li.style.height = Math.max(2, Math.round((v / top) * 74)) + 'px';
+        li.title = 'Run ' + (i + 1) + ': ' + v;
+        // Every bar carries its number for a screen reader, so the chart is
+        // a list of values as well as a picture of them.
+        const sr = document.createElement('span');
+        sr.className = 'sr';
+        sr.textContent = 'Run ' + (i + 1) + ': ' + v;
+        li.appendChild(sr);
+        list.appendChild(li);
+      });
+      wrap.appendChild(list);
+
+      // The average, as a recessive rule rather than another colour.
+      const rule = document.createElement('div');
+      rule.className = 'chart-rule';
+      rule.style.bottom = Math.round((avg / top) * 74) + 'px';
+      wrap.appendChild(rule);
+      statsBody.appendChild(wrap);
+
+      // Selective direct labels: the ends of the story, not every point.
+      const foot = document.createElement('div');
+      foot.className = 'chart-foot';
+      const mean = document.createElement('span');
+      mean.textContent = '- - -  avg ' + avg.toFixed(1);
+      const latest = document.createElement('span');
+      latest.textContent = 'best ' + top + '  ·  latest ' + runs[runs.length - 1];
+      foot.append(mean, latest);
+      statsBody.appendChild(foot);
+    }
+
+    const totals = document.createElement('p');
+    totals.className = 'sheet-section';
+    totals.textContent = 'ALL TIME';
+    statsBody.appendChild(totals);
+
+    const grid = document.createElement('div');
+    grid.className = 'tiles';
+    tile(grid, st.pipes, 'PIPES');
+    tile(grid, st.powers, 'POWER-UPS');
+    tile(grid, asClock(st.longest), 'LONGEST');
+    tile(grid, st.roosts, st.roosts === 1 ? 'ROOST' : 'ROOSTS');
+    tile(grid, runs.length ? (runs.reduce((a, b) => a + b, 0) / runs.length).toFixed(1) : '—', 'AVG RUN');
+    tile(grid, st.games ? (st.pipes / st.games).toFixed(1) : '—', 'PIPES/RUN');
+    statsBody.appendChild(grid);
+
+    const medals = document.createElement('p');
+    medals.className = 'sheet-section';
+    medals.textContent = 'MEDAL CASE';
+    statsBody.appendChild(medals);
+
+    const case_ = document.createElement('ul');
+    case_.className = 'sheet-list';
+    for (const [key, name] of MEDAL_ROWS) {
+      const li = document.createElement('li');
+      const row = document.createElement('div');
+      row.className = 'card';
+      row.style.cursor = 'default';
+      const n = document.createElement('span');
+      n.className = 'name';
+      n.textContent = name;
+      const c = document.createElement('span');
+      c.className = 'req';
+      c.style.marginLeft = 'auto';
+      c.textContent = String(st[key] || 0);
+      row.append(n, c);
+      li.appendChild(row);
+      case_.appendChild(li);
+    }
+    statsBody.appendChild(case_);
+  }
+
+  function openStats() {
+    buildStats();
+    statsSheet.hidden = false;
+    document.getElementById('stats-close').focus();
+  }
+  function closeStats() { statsSheet.hidden = true; btnStats.focus(); }
+
+  btnStats.addEventListener('click', openStats);
+  document.getElementById('stats-close').addEventListener('click', closeStats);
+
   /* ══════════════════ players ══════════════════ */
 
   const btnPlayer = document.getElementById('btn-player');
@@ -3441,8 +3670,21 @@
         for (const f of incoming.feathers) {
           if (mine.feathers.indexOf(f) < 0) mine.feathers.push(f);
         }
+        /* Read before the loop below writes it: merging the totals first
+           would raise this to the incoming count and make the comparison
+           that follows always false. */
+        const minePlayed = mine.stats.games || 0;
         for (const k of Object.keys(mine.stats)) {
+          // `recent` is a list, not a total — Math.max on two arrays is NaN,
+          // which would quietly wipe every stat beside it.
+          if (k === 'recent') continue;
           mine.stats[k] = Math.max(mine.stats[k], incoming.stats[k] || 0);
+        }
+        /* A run history cannot be merged the way a total can: interleaving
+           two of them would invent an order that never happened. Keep the
+           one belonging to whoever played more, which is the fuller record. */
+        if ((incoming.stats.games || 0) > minePlayed) {
+          mine.stats.recent = (incoming.stats.recent || []).slice(-RECENT_MAX);
         }
         for (const key of incoming.owned) {
           if (mine.owned.indexOf(key) < 0) mine.owned.push(key);
@@ -3710,7 +3952,7 @@
                         shieldHits: G.shieldHits, coinMul: G.coinMul, xpMul: G.xpMul,
                         assist: G.runAssist }),
       paused: () => G.paused,
-      openSettings, closeSettings,
+      openSettings, closeSettings, openStats, closeStats, buildStats,
       seed: () => G.seed,
       trailParticles: () => trail,
       PATTERNS, GAP_FLOOR, CALM_PIPES, HAZARD_START,
