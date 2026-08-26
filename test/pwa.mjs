@@ -21,12 +21,15 @@ const TYPES = {
   '.webmanifest': 'application/manifest+json', '.json': 'application/json; charset=utf-8'
 };
 
+// Lets a test publish a new build mid-run, the way a deploy does.
+const OVERRIDE = new Map();
+
 const server = createServer(async (req, res) => {
   let rel = decodeURIComponent(req.url.split('?')[0]);
   if (rel.endsWith('/')) rel += 'index.html';
   const file = join(ROOT, normalize(rel).replace(/^(\.\.[/\\])+/, ''));
   try {
-    const body = await readFile(file);
+    const body = OVERRIDE.has(rel) ? OVERRIDE.get(rel) : await readFile(file);
     res.writeHead(200, { 'content-type': TYPES[extname(file)] || 'application/octet-stream' });
     res.end(body);
   } catch {
@@ -62,6 +65,23 @@ const swState = await page.evaluate(async () => {
 });
 check('service worker activates and controls the page',
   swState.state === 'activated' && swState.controlled, JSON.stringify(swState));
+
+// --- a new build reaches the player on the next load --------------------
+// Cache-first navigation hands back the previous build and only notices the
+// new one afterwards, so every change lands a launch late. Nobody should
+// have to open the game twice to see a fix.
+{
+  const shipped = (await readFile(join(ROOT, 'index.html'), 'utf8'))
+    .replace('<title>', '<title data-build="second">');
+  OVERRIDE.set('/index.html', Buffer.from(shipped));
+  await page.reload({ waitUntil: 'load' });
+  const got = await page.getAttribute('title', 'data-build');
+  check('a freshly deployed build shows up on the very next load',
+    got === 'second', 'data-build=' + got);
+  OVERRIDE.delete('/index.html');
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForFunction(() => !!window.__dreybird);
+}
 
 // --- manifest ---------------------------------------------------------
 const manifestHref = await page.getAttribute('link[rel="manifest"]', 'href');

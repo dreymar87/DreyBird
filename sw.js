@@ -1,7 +1,7 @@
 /* DreyBird service worker — hand-rolled, no dependencies.
    Bump CACHE to ship an update; the old cache is dropped on activate. */
 
-const CACHE = 'dreybird-v15';   // bumped when the app shell changes
+const CACHE = 'dreybird-v16';   // bumped when the app shell changes
 const RUNTIME = 'dreybird-runtime-v1';
 
 const SHELL = [
@@ -50,15 +50,51 @@ self.addEventListener('fetch', event => {
 
   // Any navigation inside our scope resolves to the game itself.
   if (req.mode === 'navigate') {
-    event.respondWith(
-      caches.match('./index.html', { ignoreSearch: true })
-        .then(hit => hit || fetch(req).catch(() => caches.match('./')))
-    );
+    event.respondWith(pageFirst(req));
     return;
   }
 
   event.respondWith(cacheFirst(req));
 });
+
+/* Navigations go to the network first and fall back to the cache.
+
+   Cache-first was the obvious choice and it was wrong. The whole game is
+   one index.html, so serving it from the cache meant handing back the
+   previous build on every load; the browser only notices a changed sw.js
+   *after* the page has already been answered, so a fix shipped on Monday
+   first appeared on the second launch. Nobody should have to open the game
+   twice to see a change.
+
+   The font host's rule applies here too, and more sharply, because this is
+   the page itself: respondWith must always settle, and a network that
+   accepts the request and never answers must not be able to hang the game.
+   So the network races a short timer, and the cache answers if the timer
+   wins — offline, on a captive portal, or on a hotel wifi that swallows
+   requests, the last good build still starts. */
+const NAV_TIMEOUT = 2500;
+
+function pageFirst(req) {
+  const cached = () => caches.match('./index.html', { ignoreSearch: true })
+    .then(hit => hit || caches.match('./'))
+    .then(hit => hit || new Response(
+      '<!doctype html><meta charset="utf-8"><title>DreyBird</title>' +
+      '<p style="font:16px/1.5 system-ui;padding:24px">DreyBird is not cached on ' +
+      'this device yet, and the network did not answer. Reconnect and reload.</p>',
+      { headers: { 'content-type': 'text/html; charset=utf-8' } }));
+
+  // A 404 or a 500 is not a build; fall through to the cache rather than
+  // replacing a working game with an error page.
+  const network = fetch(req).then(res => {
+    if (!res || !res.ok) return null;
+    const copy = res.clone();
+    caches.open(CACHE).then(c => c.put('./index.html', copy));
+    return res;
+  }).catch(() => null);
+
+  const giveUp = new Promise(resolve => setTimeout(resolve, NAV_TIMEOUT, null));
+  return Promise.race([network, giveUp]).then(res => res || cached());
+}
 
 function cacheFirst(req) {
   return caches.match(req, { ignoreSearch: true }).then(hit => {
